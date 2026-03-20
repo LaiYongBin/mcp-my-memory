@@ -24,6 +24,7 @@
 
 ```bash
 cd ~/path/to/skill-my-memory-plugin
+source ./.env.memory.example  # 先填好再 source，或写进 ~/.zshrc
 ./install.sh
 ```
 
@@ -63,7 +64,32 @@ ln -s ~/Desktop/skill-my-memory-plugin/skills/personal-memory ~/.codex/skills/pe
 python3 scripts/bootstrap.py --backfill-embeddings
 python3 scripts/bootstrap.py --skip-service
 python3 scripts/bootstrap.py --skip-db
+python3 scripts/bootstrap.py --print-env-template
 ```
+
+## 最小可运行配置
+
+至少要有这些变量：
+
+```bash
+export LYB_SKILL_PG_ADDRESS=
+export LYB_SKILL_PG_USERNAME=
+export LYB_SKILL_PG_PASSWORD=
+export LYB_SKILL_PG_MY_PERSONAL_DATABASE=
+```
+
+建议同时设置：
+
+```bash
+export LYB_SKILL_PG_PORT=5432
+export LYB_SKILL_MEMORY_USER=LYB
+export LYB_SKILL_MEMORY_EMBED_API_KEY=
+export LYB_SKILL_MEMORY_EMBED_BASE_URL=https://dashscope.aliyuncs.com/api/v1
+export LYB_SKILL_MEMORY_EMBED_MODEL=text-embedding-v4
+export LYB_SKILL_MEMORY_EMBED_DIM=1536
+```
+
+如果只想先跑数据库记忆，不启用语义检索，可以暂时不配 `LYB_SKILL_MEMORY_EMBED_API_KEY`。
 
 ## 常用命令
 
@@ -97,3 +123,22 @@ export LYB_SKILL_MEMORY_EMBED_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 export LYB_SKILL_MEMORY_EMBED_MODEL=text-embedding-v4
 export LYB_SKILL_MEMORY_EMBED_DIM=1536
 ```
+
+仓库根目录也提供了现成模板：
+
+```bash
+cat .env.memory.example
+```
+
+## 首次安装失败排查
+
+- `missing_env`
+  说明数据库环境变量没配全，先执行 `python3 scripts/bootstrap.py --print-env-template`
+- `connection refused` 或数据库连不上
+  先确认目标机器能访问 PostgreSQL 地址和端口
+- `vector extension` 不可用
+  说明目标 PostgreSQL 没开 `pgvector`
+- 服务没起来
+  先看 `/tmp/my_skillproject-memory-service.log`
+- embedding 没生效
+  先检查 `LYB_SKILL_MEMORY_EMBED_API_KEY` 和模型维度是否匹配 `1536`
