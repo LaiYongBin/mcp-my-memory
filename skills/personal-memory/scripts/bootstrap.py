@@ -23,6 +23,7 @@ SQL_FILES = [
     "005_capture_cycle.sql",
     "006_memory_analysis.sql",
     "007_slot_memory.sql",
+    "008_evidence_accumulation.sql",
 ]
 
 REQUIRED_ENV_VARS = [
@@ -105,7 +106,8 @@ def verify_database() -> dict:
                   'working_memory',
                   'memory_review_candidate',
                   'conversation_event',
-                  'memory_analysis_result'
+                  'memory_analysis_result',
+                  'memory_evidence'
               )
             ORDER BY table_name
             """

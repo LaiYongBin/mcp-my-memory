@@ -6,6 +6,7 @@
 - pgvector 向量检索
 - 显式长期记忆
 - 自动候选提取
+- 多轮证据累积后再升级推断型记忆
 - review 候选审批/拒绝
 
 ## 安装
@@ -35,7 +36,7 @@ source ./.env.memory.example  # 先填好再 source，或写进 ~/.zshrc
 - 连接 PostgreSQL 执行建表和索引 SQL
 - 检查 `pgvector`
 - 启动本地 memory 服务并做一次 health check
-- 后续对话可以通过槽位化分析自动做冲突解析和更新
+- 后续对话可以通过槽位化分析自动做冲突解析、证据累积和更新
 
 如果你已经装到了 Claude/Codex 的 skill 目录里，也可以直接在 skill 目录执行：
 
@@ -105,6 +106,7 @@ python3 scripts/bootstrap.py
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"
 python3 scripts/memory_analysis_results.py --session-key default
+python3 scripts/memory_evidence.py --limit 20
 python3 scripts/memory_consolidate.py --list-only --session-key default
 python3 scripts/memory_capture.py --text "我喜欢黑咖啡"
 python3 scripts/memory_capture.py --text "记住我对象喜欢花" --auto-persist

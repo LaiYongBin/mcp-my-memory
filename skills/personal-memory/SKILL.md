@@ -39,6 +39,7 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 - For explicit phrases such as `记住` and `不要忘了`, persist directly as stronger long-term memory.
 - For each turn, capture memory from the whole turn instead of waiting for a fixed trigger phrase.
 - Stable facts and preferences should become long-term memory automatically.
+- Inferred traits, roles, and personality signals should first accumulate as evidence across turns before promotion.
 - time-scoped project context should go to `working_memory` automatically.
 - Sensitive or ambiguous content should go to review automatically.
 - Durable memory should be slot-based whenever possible, for example `user.favorite_drink = 黑咖啡`.
@@ -60,6 +61,7 @@ python3 scripts/ensure_service.py
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"
 python3 scripts/memory_analysis_results.py --session-key default
+python3 scripts/memory_evidence.py --limit 20
 python3 scripts/memory_consolidate.py
 python3 scripts/memory_consolidate.py --list-only --session-key default
 python3 scripts/memory_query.py --query "最近喜欢什么"

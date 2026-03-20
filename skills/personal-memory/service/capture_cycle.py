@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from service.analyzer import analyze_turn, mark_event_analyzed, save_analysis_results
 from service.db import get_conn, get_settings
+from service.evidence import accumulate_evidence, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
 from service.memory_ops import archive_memory, list_memories_by_conflict_scope, save_review_candidate, upsert_memory
 
@@ -394,33 +395,48 @@ def run_capture_cycle(
     persisted = []
     pending_candidates = []
     review_items = []
+    evidence_items = []
     for item in analysis_results:
         action = item.get("action")
         claim = str(item.get("claim") or "").strip()
         category = str(item.get("category") or "analysis")
         confidence = float(item.get("confidence") or 0.5)
         tags = list(item.get("tags") or [])
+        evidence = None
         if action == "long_term" and claim:
-            resolved = resolve_analysis_memory(item, resolved_user)
-            if resolved.get("memory"):
-                persisted.append(resolved)
-            elif resolved.get("resolution") == "needs-review":
-                review_items.append(
-                    save_review_candidate(
-                        user_code=resolved_user,
-                        source_text=user_text,
-                        candidate={
-                            "title": "待确认候选: " + claim[:60],
-                            "content": claim,
-                            "memory_type": "context",
-                            "reason": "analysis-conflict-review:" + category,
-                            "confidence": confidence,
-                            "tags": list(dict.fromkeys(tags + ["analysis-review"])),
-                            "status": "pending",
-                        },
+            evidence = accumulate_evidence(user_code=resolved_user, item=item)
+            if evidence:
+                evidence_items.append(evidence)
+            if evidence_supports_promotion(item, evidence):
+                promoted_item = item.copy()
+                promoted_item["confidence"] = promoted_confidence(item, evidence)
+                resolved = resolve_analysis_memory(promoted_item, resolved_user)
+                memory_payload = resolved.get("memory")
+                if memory_payload:
+                    persisted.append(resolved)
+                    memory_id = memory_payload.get("id") if isinstance(memory_payload, dict) else None
+                    if evidence and memory_id:
+                        mark_evidence_promoted(int(evidence["id"]), int(memory_id))
+                elif resolved.get("resolution") == "needs-review":
+                    review_items.append(
+                        save_review_candidate(
+                            user_code=resolved_user,
+                            source_text=user_text,
+                            candidate={
+                                "title": "待确认候选: " + claim[:60],
+                                "content": claim,
+                                "memory_type": "context",
+                                "reason": "analysis-conflict-review:" + category,
+                                "confidence": confidence,
+                                "tags": list(dict.fromkeys(tags + ["analysis-review"])),
+                                "status": "pending",
+                            },
+                        )
                     )
-                )
         elif action == "review" and claim:
+            evidence = accumulate_evidence(user_code=resolved_user, item=item)
+            if evidence:
+                evidence_items.append(evidence)
             review_items.append(
                 save_review_candidate(
                     user_code=resolved_user,
@@ -496,5 +512,7 @@ def run_capture_cycle(
         "working_memory_count": len(working_items),
         "review_candidates": review_items,
         "review_candidate_count": len(review_items),
+        "evidence": evidence_items,
+        "evidence_count": len(evidence_items),
         "consolidation": consolidation,
     }

@@ -48,6 +48,7 @@ Current preferred runtime:
 - represent durable memory as slots such as `subject + attribute + value`
 - resolve conflicts by slot, not by raw text
 - persist long-term memory automatically when confidence is high
+- accumulate repeated observed or inferred evidence before promoting role, personality, or profile conclusions
 - persist short-lived task and project context into `working_memory`
 - run consolidation periodically to expire or promote memory where appropriate
 - prefer asynchronous analysis in normal chat flows so memory capture does not block the main answer
@@ -64,7 +65,7 @@ Conflict examples:
 
 ## Candidate Extraction
 
-Current version uses heuristics instead of model inference.
+Current version prefers model-based structured analysis and falls back to generic structural heuristics when the analyzer is unavailable.
 
 Auto-persist immediately:
 

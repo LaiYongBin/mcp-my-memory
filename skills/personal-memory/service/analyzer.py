@@ -103,7 +103,7 @@ def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[
         {
             "category": "memory category",
             "subject": "user / partner / project / preference / context",
-            "attribute": "favorite_drink / personality_trait / current_goal / ...",
+            "attribute": "favorite_drink / favorite_food / personality_trait / possible_role / domain_interest / current_focus / current_goal / collaboration_rule / life_status / relationship_fact",
             "value": "atomic value only",
             "claim": "natural-language claim",
             "rationale": "why this is worth remembering",
@@ -121,15 +121,19 @@ def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[
         "不要按固定领域关键词判断，要基于语义理解。\n"
         "要求：\n"
         "1. 只提取值得保存的记忆点。\n"
-        "2. 每个记忆点必须槽位化，至少包含 subject/attribute/value。\n"
-        "3. 如果和旧记忆是同一槽位但值互斥，优先用 conflict_mode=replace 或 review。\n"
-        "4. 如果只是新的不同槽位，例如 favorite_drink 和 favorite_food，必须 coexist，不要误判冲突。\n"
-        "5. 对职业、年龄、性别、人格等推断要谨慎；没有足够证据时用 observed 或 inferred，不要冒充 explicit。\n"
-        "6. 如果只是当前一次性需求，放 working_memory。\n"
-        "7. 输出必须是 JSON 数组，不要任何额外说明。\n\n"
+        "2. 每个记忆点必须槽位化，至少包含 subject/attribute/value。attribute 要优先使用稳定的通用槽位名，不要每轮发明新槽位。\n"
+        "3. 优先使用这些通用槽位：favorite_drink、favorite_food、personality_trait、possible_role、domain_interest、current_focus、current_goal、collaboration_rule、life_status、relationship_fact。\n"
+        "4. 如果和旧记忆是同一槽位但值互斥，优先用 conflict_mode=replace 或 review。\n"
+        "5. 如果只是新的不同槽位，例如 favorite_drink 和 favorite_food，必须 coexist，不要误判冲突。\n"
+        "6. 对职业、年龄、性别、人格等推断要谨慎；没有足够证据时用 observed 或 inferred，不要冒充 explicit。\n"
+        "7. 如果一轮对话体现出高层稳定信号，例如反复出现的技术工作、长期偏好、人格倾向，请额外给出 domain_interest 或 possible_role / personality_trait 这类可累积证据。\n"
+        "8. 推断型结论应尽量描述成可累积证据的记忆点，而不是一次就下定论。\n"
+        "9. 如果只是当前一次性需求，放 working_memory。\n"
+        "10. value 要尽量规范化、短语化，去掉时间词，方便跨轮累积。\n"
+        "11. 输出必须是 JSON 数组，不要任何额外说明。\n\n"
         f"当前用户输入:\n{user_text}\n\n"
         f"当前助手回复:\n{assistant_text}\n\n"
-        f"最近已有记忆:\n{json.dumps(recent_memories, ensure_ascii=False)}\n\n"
+        f"最近已有记忆:\n{json.dumps(recent_memories, ensure_ascii=False, default=str)}\n\n"
         f"输出 schema 示例:\n{json.dumps(schema, ensure_ascii=False)}"
     )
 
@@ -164,6 +168,31 @@ def _call_analyzer_model(prompt: str) -> List[Dict[str, Any]]:
     if isinstance(parsed, dict):
         parsed = parsed.get("items") or parsed.get("data") or []
     return parsed if isinstance(parsed, list) else []
+
+
+ATTRIBUTE_ALIASES = {
+    "self_description": "personality_trait",
+    "personality": "personality_trait",
+    "trait": "personality_trait",
+    "possible_job": "possible_role",
+    "likely_role": "possible_role",
+    "role": "possible_role",
+    "topic_interest": "domain_interest",
+    "current_technical_focus": "current_focus",
+    "current_learning_focus": "current_focus",
+    "current_performance_focus": "current_focus",
+}
+
+
+def _canonical_attribute(attribute: str) -> str:
+    cleaned = str(attribute or "").strip()
+    if not cleaned:
+        return cleaned
+    if cleaned in ATTRIBUTE_ALIASES:
+        return ATTRIBUTE_ALIASES[cleaned]
+    if cleaned.startswith("current_") and cleaned.endswith("_focus"):
+        return "current_focus"
+    return cleaned
 
 
 def build_analysis_item(
@@ -346,7 +375,7 @@ def _fallback_analysis(user_text: str) -> List[Dict[str, Any]]:
 
 def _normalize_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     subject = str(item.get("subject") or "").strip() or "user"
-    attribute = str(item.get("attribute") or "").strip()
+    attribute = _canonical_attribute(str(item.get("attribute") or "").strip())
     value = str(item.get("value") or "").strip()
     claim = str(item.get("claim") or value).strip()
     if not attribute or not value or not claim:
