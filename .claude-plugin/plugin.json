@@ -1,0 +1,8 @@
+{
+  "name": "skill-my-memory",
+  "description": "个人长期记忆与候选记忆管理技能，支持 PostgreSQL、pgvector、自动候选提取、review 审批与向量检索。",
+  "author": {
+    "name": "LaiYongBin",
+    "email": ""
+  }
+}

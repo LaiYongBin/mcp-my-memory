@@ -1,0 +1,7 @@
+interface:
+  display_name: "Personal Memory"
+  short_description: "Store and retrieve durable personal memory."
+  default_prompt: "Use $personal-memory to remember, retrieve, or update long-term personal memory."
+
+policy:
+  allow_implicit_invocation: true
