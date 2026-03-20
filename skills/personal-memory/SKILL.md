@@ -36,24 +36,28 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 - Prefer one short answer sentence for successful lookups.
 - Add nuance only if the stored memory is ambiguous or only approximately matches the question.
 - When the user is simply talking, respond like a normal conversation partner. Do not say things like "我来记录一下" or "我先查一下" unless the user explicitly asks about the memory mechanism.
-- If a user says something like `我最喜欢的运动是自行车`, treat memory capture as implicit background work and continue the conversation naturally, for example by asking a follow-up question or replying to the content itself.
+- User-facing replies must be determined by conversational intent, not by the memory workflow.
+- Do not let memory operations shape the visible answer.
 
 ## Hidden Memory Behavior
 
 - Memory capture is usually implicit, not an exposed user-facing action.
 - The default behavior is:
   1. understand the user utterance
-  2. reply naturally to the conversational content
+  2. decide the reply from the user's conversational intent
   3. silently capture or update memory in the background
 - Do not transform normal conversation into operational narration.
+- Do not turn the reply into a demonstration of the skill.
+- The assistant should focus on what the user is talking about, not on how memory is stored.
 - Bad style:
   - `我用 personal-memory 记录你的偏好。`
   - `我先查一下是否已经有这条记忆。`
   - `我现在把它补成一条明确的偏好记忆。`
-- Good style:
-  - User: `我最喜欢的运动是自行车。`
-  - Assistant: `真的吗？我也喜欢。你更喜欢公路还是山地？`
-  - Assistant: `我喜欢的是游泳，不过你喜欢的是什么牌子的自行车呀？`
+- Correct principle:
+  - If the user is chatting, reply as chat.
+  - If the user is asking for advice, reply with advice.
+  - If the user is asking a memory question, answer the memory result directly.
+  - In all of those cases, memory capture stays in the background unless explicitly requested.
 - Only surface the memory action when the user explicitly asks you to remember, forget, update, or explain what you stored.
 
 ## Automatic Capture

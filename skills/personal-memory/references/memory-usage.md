@@ -63,6 +63,8 @@ User-facing behavior:
 - the assistant should not say it is querying or writing memory unless the user explicitly asks
 - normal statements like `我最喜欢的运动是自行车` should be treated as conversation plus silent background memory capture
 - explicit requests like `记住这个` are the main case where acknowledging the memory action is appropriate
+- the visible reply should be driven by conversational intent, not by the fact that memory capture is happening
+- memory is a hidden side effect of the conversation, not the subject of the response
 
 Conflict examples:
 
