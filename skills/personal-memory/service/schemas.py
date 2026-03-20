@@ -79,6 +79,28 @@ class AnalysisListRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
 
 
+class TurnInput(BaseModel):
+    role: str
+    content: str
+
+
+class ContextSyncRequest(BaseModel):
+    session_key: str = "default"
+    turns: List[TurnInput] = Field(default_factory=list)
+    user_code: Optional[str] = None
+    topic_hint: Optional[str] = None
+    source_ref: Optional[str] = None
+    extract_memory: bool = False
+
+
+class ContextSearchRequest(BaseModel):
+    query: str = Field(default="")
+    user_code: Optional[str] = None
+    session_key: Optional[str] = None
+    snapshot_level: Optional[str] = None
+    limit: int = Field(default=10, ge=1, le=100)
+
+
 class ReviewListRequest(BaseModel):
     user_code: Optional[str] = None
     limit: int = Field(default=20, ge=1, le=100)

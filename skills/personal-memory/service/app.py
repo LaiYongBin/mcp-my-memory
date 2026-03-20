@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 
 from service.analyzer import list_analysis_results
+from service.context_snapshots import search_context_snapshots, sync_session_context
 from service.db import get_settings
 from service.capture_cycle import consolidate_working_memories, run_capture_cycle
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
@@ -27,6 +28,8 @@ from service.schemas import (
     CaptureRequest,
     CaptureCycleRequest,
     ConsolidateRequest,
+    ContextSearchRequest,
+    ContextSyncRequest,
     DeleteRequest,
     PromoteRequest,
     ReviewActionRequest,
@@ -68,6 +71,31 @@ def search_memory_items(request: SearchRequest) -> ApiResponse:
         memory_type=request.memory_type,
         tags=request.tags,
         include_archived=request.include_archived,
+        limit=request.limit,
+    )
+    return ApiResponse(ok=True, data={"items": rows, "count": len(rows)})
+
+
+@app.post("/context/sync", response_model=ApiResponse)
+def sync_context(request: ContextSyncRequest) -> ApiResponse:
+    payload = sync_session_context(
+        session_key=request.session_key,
+        turns=[turn.model_dump() for turn in request.turns],
+        user_code=request.user_code,
+        topic_hint=request.topic_hint,
+        source_ref=request.source_ref,
+        extract_memory=request.extract_memory,
+    )
+    return ApiResponse(ok=True, data=payload)
+
+
+@app.post("/context/search", response_model=ApiResponse)
+def search_context(request: ContextSearchRequest) -> ApiResponse:
+    rows = search_context_snapshots(
+        query=request.query,
+        user_code=request.user_code,
+        session_key=request.session_key,
+        snapshot_level=request.snapshot_level,
         limit=request.limit,
     )
     return ApiResponse(ok=True, data={"items": rows, "count": len(rows)})

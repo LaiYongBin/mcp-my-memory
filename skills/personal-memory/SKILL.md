@@ -24,9 +24,10 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 1. Run `scripts/ensure_service.py`.
 2. Prefer the local service endpoints over Python CLI scripts.
 3. When the service is healthy, call it with `curl` first to reduce Python process startup cost.
-4. At the end of each user turn, call the capture endpoint silently with the user message and the final assistant answer.
-5. Only if the service cannot be reached, fall back to the direct scripts in `scripts/`.
-5. Prefer `--async-mode` in normal chat flows so memory analysis does not block the user-facing reply.
+4. Do not extract long-term memory on every turn.
+5. Only when the user explicitly invokes this skill for memory work, sync the relevant current-session transcript and then extract memory if needed.
+6. Store session context snapshots separately from durable personal memory.
+7. Only if the service cannot be reached, fall back to the direct scripts in `scripts/`.
 
 ## Response Style
 
@@ -41,11 +42,11 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 
 ## Hidden Memory Behavior
 
-- Memory capture is usually implicit, not an exposed user-facing action.
-- The default behavior is:
-  1. understand the user utterance
-  2. decide the reply from the user's conversational intent
-  3. silently capture or update memory in the background
+- Long-term memory extraction is no longer a default every-turn action.
+- Current conversation context already lives in the active model context, so it does not need to be persisted immediately on every turn.
+- When the user explicitly invokes this skill, do two separate things:
+  1. sync the relevant conversation transcript into context snapshots
+  2. extract durable memory only if the current request is really about memory
 - Do not transform normal conversation into operational narration.
 - Do not turn the reply into a demonstration of the skill.
 - The assistant should focus on what the user is talking about, not on how memory is stored.
@@ -63,14 +64,15 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 ## Automatic Capture
 
 - For explicit phrases such as `记住` and `不要忘了`, persist directly as stronger long-term memory.
-- For each turn, capture memory from the whole turn instead of waiting for a fixed trigger phrase.
-- Stable facts and preferences should become long-term memory automatically.
-- Inferred traits, roles, and personality signals should first accumulate as evidence across turns before promotion.
-- time-scoped project context should go to `working_memory` automatically.
+- Do not auto-extract long-term memory from every ordinary turn.
+- Stable facts and preferences should be extracted from the current session only when this skill is explicitly invoked.
+- Inferred traits, roles, and personality signals should still accumulate as evidence before promotion.
+- Store context snapshots for small discussion segments and larger topic summaries, so later questions such as `你上次说 xxx` can be traced back to the original discussion context.
 - Sensitive or ambiguous content should go to review automatically.
 - Durable memory should be slot-based whenever possible, for example `user.favorite_drink = 黑咖啡`.
 - Conflict detection should be based on slot identity, not raw-text similarity.
-- Use `scripts/memory_capture_cycle.py` as the default path.
+- Use `scripts/context_sync.py` to sync a session transcript into segment/topic summaries.
+- Use memory extraction only as an explicit follow-up action during memory work.
 - `scripts/memory_capture.py` remains available for one-off sentence extraction.
 
 ## Safety Rules
@@ -88,15 +90,16 @@ curl -s http://127.0.0.1:8787/health
 curl -s http://127.0.0.1:8787/memory/search \
   -H 'Content-Type: application/json' \
   -d '{"query":"最喜欢的饮料","limit":5}'
-curl -s http://127.0.0.1:8787/memory/capture-cycle-async \
+curl -s http://127.0.0.1:8787/context/sync \
   -H 'Content-Type: application/json' \
-  -d '{"session_key":"default","user_text":"我最喜欢的运动是自行车","assistant_text":"真的吗？我也喜欢。你更喜欢公路还是山地？","consolidate":true}'
-python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
-python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"
+  -d '{"session_key":"life-talk-2026-03-19","topic_hint":"人生观讨论","turns":[{"role":"user","content":"我现在越来越认同戈尔泰的人生观。"},{"role":"assistant","content":"你更认同的是哪一部分？"}],"extract_memory":true}'
+curl -s http://127.0.0.1:8787/context/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"戈尔泰 人生观","snapshot_level":"topic","limit":5}'
+python3 scripts/context_sync.py --session-key life-talk-2026-03-19 --topic-hint "人生观讨论" --turn "user:我现在越来越认同戈尔泰的人生观。" --turn "assistant:你更认同的是哪一部分？" --extract-memory
+python3 scripts/context_search.py --query "戈尔泰 人生观" --snapshot-level topic --limit 5
 python3 scripts/memory_analysis_results.py --session-key default
 python3 scripts/memory_evidence.py --limit 20
-python3 scripts/memory_consolidate.py
-python3 scripts/memory_consolidate.py --list-only --session-key default
 python3 scripts/memory_query.py --query "最近喜欢什么"
 python3 scripts/memory_upsert.py --promote --explicit --memory-type preference --content "我喜欢黑咖啡"
 python3 scripts/memory_capture.py --text "我喜欢黑咖啡"

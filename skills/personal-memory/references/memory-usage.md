@@ -45,16 +45,16 @@ Current preferred runtime:
 - run `scripts/ensure_service.py` first
 - when the service is healthy, prefer `curl` against the local HTTP endpoints
 - use Python CLI scripts only as fallback when the service is unavailable
-- record the raw turn into `conversation_event`
-- classify the user turn into `long_term`, `working_memory`, `review_required`, or `ignore`
-- persist a structured `memory_analysis_result` first, then decide how to write memory
+- do not treat every normal turn as a memory-extraction event
+- when the user explicitly invokes memory work, sync the relevant transcript into `conversation_event`
+- create a segment-level context snapshot for the current discussion chunk
+- merge segment snapshots into a larger topic-level snapshot
+- only then, if the request is really about memory extraction, persist a structured `memory_analysis_result` and decide what durable memory to write
 - represent durable memory as slots such as `subject + attribute + value`
 - resolve conflicts by slot, not by raw text
 - persist long-term memory automatically when confidence is high
 - accumulate repeated observed or inferred evidence before promoting role, personality, or profile conclusions
-- persist short-lived task and project context into `working_memory`
-- run consolidation periodically to expire or promote memory where appropriate
-- prefer asynchronous analysis in normal chat flows so memory capture does not block the main answer
+- preserve both raw conversation events and higher-level summaries, so later questions can trace back from topic summary to concrete discussion context
 
 User-facing behavior:
 
@@ -65,6 +65,17 @@ User-facing behavior:
 - explicit requests like `记住这个` are the main case where acknowledging the memory action is appropriate
 - the visible reply should be driven by conversational intent, not by the fact that memory capture is happening
 - memory is a hidden side effect of the conversation, not the subject of the response
+
+Recommended context layers:
+
+- `conversation_event`
+  raw turns for traceability
+- `conversation_context_snapshot` with `snapshot_level=segment`
+  one smaller discussion chunk summary
+- `conversation_context_snapshot` with `snapshot_level=topic`
+  one larger topic-level summary built from segment summaries
+- `memory_item`
+  only stable personal memory, not all conversation history
 
 Conflict examples:
 
