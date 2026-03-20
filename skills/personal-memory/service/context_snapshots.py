@@ -28,6 +28,38 @@ def _topic_key(text: str) -> str:
     return md5(text.encode("utf-8")).hexdigest()[:16]
 
 
+def _event_ids(rows: Sequence[Dict[str, Any]]) -> List[int]:
+    return [int(row["id"]) for row in rows if row.get("id")]
+
+
+def _merge_source_event_ids(left: Sequence[Any], right: Sequence[Any]) -> List[int]:
+    merged: List[int] = []
+    for value in list(left) + list(right):
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            continue
+        if normalized not in merged:
+            merged.append(normalized)
+    return merged
+
+
+def _earliest_time(left: Any, right: Any) -> Any:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left if left <= right else right
+
+
+def _latest_time(left: Any, right: Any) -> Any:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left if left >= right else right
+
+
 def _call_text_model(prompt: str) -> Dict[str, Any]:
     config = analyzer_config()
     base_url = str(config["base_url"]).rstrip("/")
@@ -256,6 +288,29 @@ def _latest_topic_snapshot(*, user_code: str, session_key: str, topic_key: str) 
         return dict(row) if row else None
 
 
+def _latest_global_topic_snapshot(*, user_code: str, topic_key: str) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_code, session_key, snapshot_level, topic_key, topic, summary,
+                   user_view, assistant_view, key_points, open_questions, source_event_ids,
+                   parent_snapshot_id, turn_count, started_at, ended_at, source_ref,
+                   status, created_at, updated_at
+            FROM conversation_context_snapshot
+            WHERE user_code = %s
+              AND session_key = '__global__'
+              AND snapshot_level = 'global_topic'
+              AND topic_key = %s
+              AND status = 'active'
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (user_code, topic_key),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
 def _update_topic_snapshot(snapshot_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -401,6 +456,7 @@ def sync_session_context(
     segment = summarize_segment(transcript, topic_hint)
     started_at = events[0]["created_at"] if events else None
     ended_at = events[-1]["created_at"] if events else None
+    current_event_ids = _event_ids(events)
     segment_row = _save_snapshot(
         {
             "user_code": resolved_user,
@@ -413,7 +469,7 @@ def sync_session_context(
             "assistant_view": segment.get("assistant_view"),
             "key_points": segment.get("key_points") or [],
             "open_questions": segment.get("open_questions") or [],
-            "source_event_ids": [int(row["id"]) for row in events if row.get("id")],
+            "source_event_ids": current_event_ids,
             "parent_snapshot_id": None,
             "turn_count": len(events),
             "started_at": started_at,
@@ -428,7 +484,19 @@ def sync_session_context(
         session_key=session_key,
         topic_key=segment["topic_key"],
     )
-    merged_topic = merge_topic_summary(existing_topic, segment)
+    existing_topic_event_ids = _merge_source_event_ids(existing_topic.get("source_event_ids") or [], []) if existing_topic else []
+    if existing_topic and set(existing_topic_event_ids) == set(current_event_ids):
+        merged_topic = {
+            "topic": segment["topic"],
+            "topic_key": segment["topic_key"],
+            "summary": segment["summary"],
+            "user_view": segment.get("user_view"),
+            "assistant_view": segment.get("assistant_view"),
+            "key_points": list(segment.get("key_points") or []),
+            "open_questions": list(segment.get("open_questions") or []),
+        }
+    else:
+        merged_topic = merge_topic_summary(existing_topic, segment)
     topic_payload = {
         "user_code": resolved_user,
         "session_key": session_key,
@@ -440,16 +508,15 @@ def sync_session_context(
         "assistant_view": merged_topic.get("assistant_view"),
         "key_points": merged_topic.get("key_points") or [],
         "open_questions": merged_topic.get("open_questions") or [],
-        "source_event_ids": list(
-            dict.fromkeys(
-                list(existing_topic.get("source_event_ids") or []) + [int(row["id"]) for row in events if row.get("id")]
-            )
+        "source_event_ids": _merge_source_event_ids(
+            existing_topic.get("source_event_ids") or [],
+            current_event_ids,
         )
         if existing_topic
-        else [int(row["id"]) for row in events if row.get("id")],
+        else current_event_ids,
         "turn_count": int(existing_topic.get("turn_count") or 0) + len(events) if existing_topic else len(events),
-        "started_at": existing_topic.get("started_at") if existing_topic and existing_topic.get("started_at") else started_at,
-        "ended_at": ended_at or (existing_topic.get("ended_at") if existing_topic else None),
+        "started_at": _earliest_time(existing_topic.get("started_at"), started_at) if existing_topic else started_at,
+        "ended_at": _latest_time(existing_topic.get("ended_at"), ended_at) if existing_topic else ended_at,
         "source_ref": source_ref,
     }
     if existing_topic:
@@ -459,6 +526,66 @@ def sync_session_context(
             topic_payload
             | {
                 "parent_snapshot_id": int(segment_row["id"]),
+                "status": "active",
+            }
+        )
+
+    existing_global_topic = _latest_global_topic_snapshot(
+        user_code=resolved_user,
+        topic_key=segment["topic_key"],
+    )
+    existing_global_event_ids = (
+        _merge_source_event_ids(existing_global_topic.get("source_event_ids") or [], [])
+        if existing_global_topic
+        else []
+    )
+    if existing_global_topic and set(current_event_ids).issubset(set(existing_global_event_ids)):
+        merged_global_topic = {
+            "topic": existing_global_topic["topic"],
+            "topic_key": existing_global_topic["topic_key"],
+            "summary": existing_global_topic["summary"],
+            "user_view": existing_global_topic.get("user_view"),
+            "assistant_view": existing_global_topic.get("assistant_view"),
+            "key_points": list(existing_global_topic.get("key_points") or []),
+            "open_questions": list(existing_global_topic.get("open_questions") or []),
+        }
+    else:
+        merged_global_topic = merge_topic_summary(existing_global_topic, segment)
+    global_payload = {
+        "user_code": resolved_user,
+        "session_key": "__global__",
+        "snapshot_level": "global_topic",
+        "topic_key": merged_global_topic["topic_key"],
+        "topic": merged_global_topic["topic"],
+        "summary": merged_global_topic["summary"],
+        "user_view": merged_global_topic.get("user_view"),
+        "assistant_view": merged_global_topic.get("assistant_view"),
+        "key_points": merged_global_topic.get("key_points") or [],
+        "open_questions": merged_global_topic.get("open_questions") or [],
+        "source_event_ids": _merge_source_event_ids(
+            existing_global_topic.get("source_event_ids") or [],
+            current_event_ids,
+        )
+        if existing_global_topic
+        else current_event_ids,
+        "turn_count": int(existing_global_topic.get("turn_count") or 0) + len(events)
+        if existing_global_topic
+        else len(events),
+        "started_at": _earliest_time(existing_global_topic.get("started_at"), started_at)
+        if existing_global_topic
+        else started_at,
+        "ended_at": _latest_time(existing_global_topic.get("ended_at"), ended_at)
+        if existing_global_topic
+        else ended_at,
+        "source_ref": source_ref,
+    }
+    if existing_global_topic:
+        global_topic_row = _update_topic_snapshot(int(existing_global_topic["id"]), global_payload)
+    else:
+        global_topic_row = _save_snapshot(
+            global_payload
+            | {
+                "parent_snapshot_id": int(topic_row["id"]),
                 "status": "active",
             }
         )
@@ -476,6 +603,7 @@ def sync_session_context(
         "event_count": len(events),
         "segment_snapshot": segment_row,
         "topic_snapshot": topic_row,
+        "global_topic_snapshot": global_topic_row,
         "memory_sync": memory_sync,
     }
 

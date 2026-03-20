@@ -27,7 +27,8 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 4. Do not extract long-term memory on every turn.
 5. Only when the user explicitly invokes this skill for memory work, sync the relevant current-session transcript and then extract memory if needed.
 6. Store session context snapshots separately from durable personal memory.
-7. Only if the service cannot be reached, fall back to the direct scripts in `scripts/`.
+7. Merge same-topic summaries across sessions into a higher-level `global_topic` snapshot.
+8. Only if the service cannot be reached, fall back to the direct scripts in `scripts/`.
 
 ## Response Style
 
@@ -68,6 +69,7 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 - Stable facts and preferences should be extracted from the current session only when this skill is explicitly invoked.
 - Inferred traits, roles, and personality signals should still accumulate as evidence before promotion.
 - Store context snapshots for small discussion segments and larger topic summaries, so later questions such as `你上次说 xxx` can be traced back to the original discussion context.
+- Also maintain a cross-session `global_topic` summary for the same topic across multiple days or conversations.
 - Sensitive or ambiguous content should go to review automatically.
 - Durable memory should be slot-based whenever possible, for example `user.favorite_drink = 黑咖啡`.
 - Conflict detection should be based on slot identity, not raw-text similarity.
@@ -96,8 +98,12 @@ curl -s http://127.0.0.1:8787/context/sync \
 curl -s http://127.0.0.1:8787/context/search \
   -H 'Content-Type: application/json' \
   -d '{"query":"戈尔泰 人生观","snapshot_level":"topic","limit":5}'
+curl -s http://127.0.0.1:8787/context/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"戈尔泰 人生观","snapshot_level":"global_topic","limit":5}'
 python3 scripts/context_sync.py --session-key life-talk-2026-03-19 --topic-hint "人生观讨论" --turn "user:我现在越来越认同戈尔泰的人生观。" --turn "assistant:你更认同的是哪一部分？" --extract-memory
 python3 scripts/context_search.py --query "戈尔泰 人生观" --snapshot-level topic --limit 5
+python3 scripts/context_search.py --query "戈尔泰 人生观" --snapshot-level global_topic --limit 5
 python3 scripts/memory_analysis_results.py --session-key default
 python3 scripts/memory_evidence.py --limit 20
 python3 scripts/memory_query.py --query "最近喜欢什么"

@@ -49,6 +49,7 @@ Current preferred runtime:
 - when the user explicitly invokes memory work, sync the relevant transcript into `conversation_event`
 - create a segment-level context snapshot for the current discussion chunk
 - merge segment snapshots into a larger topic-level snapshot
+- merge same-topic summaries across sessions into a `global_topic` snapshot
 - only then, if the request is really about memory extraction, persist a structured `memory_analysis_result` and decide what durable memory to write
 - represent durable memory as slots such as `subject + attribute + value`
 - resolve conflicts by slot, not by raw text
@@ -74,6 +75,8 @@ Recommended context layers:
   one smaller discussion chunk summary
 - `conversation_context_snapshot` with `snapshot_level=topic`
   one larger topic-level summary built from segment summaries
+- `conversation_context_snapshot` with `snapshot_level=global_topic`
+  one cross-session topic summary built from multiple topic snapshots
 - `memory_item`
   only stable personal memory, not all conversation history
 

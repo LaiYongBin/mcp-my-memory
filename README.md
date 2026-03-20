@@ -16,6 +16,7 @@
 - 记忆读写默认是隐形操作，不向用户汇报内部查询或写入过程
 - 长期记忆提取只在显式调用 memory skill 时进行
 - 会话上下文摘要与长期记忆分开存储
+- 同一主题可跨多个 session 聚合成全局主题摘要
 
 ## 安装
 
@@ -120,9 +121,13 @@ curl -s http://127.0.0.1:8787/context/sync \
 curl -s http://127.0.0.1:8787/context/search \
   -H 'Content-Type: application/json' \
   -d '{"query":"戈尔泰 人生观","snapshot_level":"topic","limit":5}'
+curl -s http://127.0.0.1:8787/context/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"戈尔泰 人生观","snapshot_level":"global_topic","limit":5}'
 python3 scripts/bootstrap.py
 python3 scripts/context_sync.py --session-key life-talk-2026-03-19 --topic-hint "人生观讨论" --turn "user:我现在越来越认同戈尔泰的人生观。" --turn "assistant:你更认同的是哪一部分？" --extract-memory
 python3 scripts/context_search.py --query "戈尔泰 人生观" --snapshot-level topic --limit 5
+python3 scripts/context_search.py --query "戈尔泰 人生观" --snapshot-level global_topic --limit 5
 python3 scripts/memory_analysis_results.py --session-key default
 python3 scripts/memory_evidence.py --limit 20
 python3 scripts/memory_capture.py --text "我喜欢黑咖啡"
