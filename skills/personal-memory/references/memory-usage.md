@@ -55,6 +55,9 @@ Auto-persist by default when low risk:
 - `我不喜欢...`
 - `以后请...`
 - `默认用...`
+- `我是一个...的人`
+- `我是个...的人`
+- `我很...`
 
 Do not auto-persist when content looks sensitive or ambiguous. Keep those as reviewable candidates.
 
@@ -76,6 +79,9 @@ Extract as candidates first:
 - `我习惯...`
 - `以后请...`
 - `默认用...`
+- `我是一个...的人`
+- `我是个...的人`
+- `我很...`
 
 ## Vector Retrieval
 
@@ -86,6 +92,6 @@ The system now distinguishes:
 
 Hybrid retrieval should prefer:
 
-1. explicit long-term memories
-2. lexical rank
-3. vector similarity
+1. lexical rank and vector similarity
+2. explicitness as a small bonus
+3. importance and confidence as smaller bonuses

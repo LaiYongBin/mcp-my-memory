@@ -18,6 +18,12 @@ PREFERENCE_PATTERNS = [
     r"我习惯(?P<content>.+)",
 ]
 
+SELF_FACT_PATTERNS = [
+    r"我是一个(?P<content>.+?的人)",
+    r"我是个(?P<content>.+?的人)",
+    r"我很(?P<content>.+)",
+]
+
 RULE_PATTERNS = [
     r"以后请(?P<content>.+)",
     r"默认用(?P<content>.+)",
@@ -33,6 +39,15 @@ RISKY_KEYWORDS = [
     "爱不爱",
     "讨厌我",
     "身份",
+    "政治",
+    "宗教",
+]
+
+SELF_FACT_RISKY_KEYWORDS = [
+    "抑郁",
+    "焦虑",
+    "生病",
+    "怀孕",
     "政治",
     "宗教",
 ]
@@ -129,6 +144,24 @@ def extract_candidates(text: str) -> List[Dict[str, Any]]:
                     title_prefix="规则候选",
                 )
             )
+
+    for pattern in SELF_FACT_PATTERNS:
+        match = re.search(pattern, stripped)
+        if match:
+            content = match.group("content").strip()
+            if any(keyword in content for keyword in SELF_FACT_RISKY_KEYWORDS):
+                continue
+            candidates.append(
+                _build_candidate(
+                    text=content,
+                    memory_type="fact",
+                    confidence=0.82,
+                    importance=5,
+                    is_explicit=False,
+                    title_prefix="事实候选",
+                )
+            )
+            break
 
     if not candidates and stripped.startswith(("我是", "我现在", "我最近")):
         candidates.append(

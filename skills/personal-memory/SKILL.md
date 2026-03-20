@@ -25,10 +25,18 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 2. If healthy, use the service endpoints.
 3. If startup fails, use the direct scripts in `scripts/`.
 
+## Response Style
+
+- When the user asks a direct memory question such as "你知道我最喜欢的饮料是什么吗", answer the memory result directly first.
+- Do not narrate the lookup process unless the user explicitly asks what you are doing, or the lookup fails.
+- Prefer one short answer sentence for successful lookups.
+- Add nuance only if the stored memory is ambiguous or only approximately matches the question.
+
 ## Automatic Capture
 
 - For explicit phrases such as `记住` and `不要忘了`, persist directly as stronger long-term memory.
 - For softer statements such as `我喜欢...`, `我不喜欢...`, `以后请...`, first extract candidate memories.
+- Stable self-descriptions such as `我是一个...的人`, `我是个...的人`, `我很...` should be treated as personal fact candidates.
 - Use `scripts/memory_capture.py` to extract or auto-persist candidates.
 
 ## Safety Rules
