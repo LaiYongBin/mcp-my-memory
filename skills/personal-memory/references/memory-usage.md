@@ -42,6 +42,9 @@ Use lower confidence for unsafe candidates and prefer confirmation.
 
 Current preferred runtime:
 
+- run `scripts/ensure_service.py` first
+- when the service is healthy, prefer `curl` against the local HTTP endpoints
+- use Python CLI scripts only as fallback when the service is unavailable
 - record the raw turn into `conversation_event`
 - classify the user turn into `long_term`, `working_memory`, `review_required`, or `ignore`
 - persist a structured `memory_analysis_result` first, then decide how to write memory
@@ -52,6 +55,14 @@ Current preferred runtime:
 - persist short-lived task and project context into `working_memory`
 - run consolidation periodically to expire or promote memory where appropriate
 - prefer asynchronous analysis in normal chat flows so memory capture does not block the main answer
+
+User-facing behavior:
+
+- memory should usually be invisible to the user
+- the assistant should reply to the conversational meaning first, not narrate internal storage steps
+- the assistant should not say it is querying or writing memory unless the user explicitly asks
+- normal statements like `我最喜欢的运动是自行车` should be treated as conversation plus silent background memory capture
+- explicit requests like `记住这个` are the main case where acknowledging the memory action is appropriate
 
 Conflict examples:
 

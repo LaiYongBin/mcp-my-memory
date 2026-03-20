@@ -9,6 +9,12 @@
 - 多轮证据累积后再升级推断型记忆
 - review 候选审批/拒绝
 
+默认交互原则：
+
+- 优先走本地 HTTP 服务接口
+- 优先用 `curl` 调服务，Python CLI 只做兜底
+- 记忆读写默认是隐形操作，不向用户汇报内部查询或写入过程
+
 ## 安装
 
 ```bash
@@ -102,6 +108,13 @@ cd ~/.codex/skills/personal-memory
 . .venv/bin/activate
 
 python3 scripts/ensure_service.py
+curl -s http://127.0.0.1:8787/health
+curl -s http://127.0.0.1:8787/memory/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"黑咖啡","limit":5}'
+curl -s http://127.0.0.1:8787/memory/capture-cycle-async \
+  -H 'Content-Type: application/json' \
+  -d '{"session_key":"default","user_text":"我最喜欢的运动是自行车","assistant_text":"真的吗？我也喜欢。你更喜欢公路还是山地？","consolidate":true}'
 python3 scripts/bootstrap.py
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"

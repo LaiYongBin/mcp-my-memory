@@ -22,17 +22,39 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 ## Runtime Order
 
 1. Run `scripts/ensure_service.py`.
-2. For direct lookup, use the service endpoints.
-3. At the end of each user turn, call `scripts/memory_capture_cycle.py` with the user message and the final assistant answer.
-4. If startup fails, use the direct scripts in `scripts/`.
+2. Prefer the local service endpoints over Python CLI scripts.
+3. When the service is healthy, call it with `curl` first to reduce Python process startup cost.
+4. At the end of each user turn, call the capture endpoint silently with the user message and the final assistant answer.
+5. Only if the service cannot be reached, fall back to the direct scripts in `scripts/`.
 5. Prefer `--async-mode` in normal chat flows so memory analysis does not block the user-facing reply.
 
 ## Response Style
 
 - When the user asks a direct memory question such as "你知道我最喜欢的饮料是什么吗", answer the memory result directly first.
-- Do not narrate the lookup process unless the user explicitly asks what you are doing, or the lookup fails.
+- Memory reads and writes are hidden operations by default.
+- Do not narrate the lookup or write process unless the user explicitly asks what you are doing, or the lookup fails.
 - Prefer one short answer sentence for successful lookups.
 - Add nuance only if the stored memory is ambiguous or only approximately matches the question.
+- When the user is simply talking, respond like a normal conversation partner. Do not say things like "我来记录一下" or "我先查一下" unless the user explicitly asks about the memory mechanism.
+- If a user says something like `我最喜欢的运动是自行车`, treat memory capture as implicit background work and continue the conversation naturally, for example by asking a follow-up question or replying to the content itself.
+
+## Hidden Memory Behavior
+
+- Memory capture is usually implicit, not an exposed user-facing action.
+- The default behavior is:
+  1. understand the user utterance
+  2. reply naturally to the conversational content
+  3. silently capture or update memory in the background
+- Do not transform normal conversation into operational narration.
+- Bad style:
+  - `我用 personal-memory 记录你的偏好。`
+  - `我先查一下是否已经有这条记忆。`
+  - `我现在把它补成一条明确的偏好记忆。`
+- Good style:
+  - User: `我最喜欢的运动是自行车。`
+  - Assistant: `真的吗？我也喜欢。你更喜欢公路还是山地？`
+  - Assistant: `我喜欢的是游泳，不过你喜欢的是什么牌子的自行车呀？`
+- Only surface the memory action when the user explicitly asks you to remember, forget, update, or explain what you stored.
 
 ## Automatic Capture
 
@@ -58,6 +80,13 @@ This skill is self-contained. The service code, scripts, SQL, and references liv
 
 ```bash
 python3 scripts/ensure_service.py
+curl -s http://127.0.0.1:8787/health
+curl -s http://127.0.0.1:8787/memory/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"最喜欢的饮料","limit":5}'
+curl -s http://127.0.0.1:8787/memory/capture-cycle-async \
+  -H 'Content-Type: application/json' \
+  -d '{"session_key":"default","user_text":"我最喜欢的运动是自行车","assistant_text":"真的吗？我也喜欢。你更喜欢公路还是山地？","consolidate":true}'
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "我是一个很感性的人" --assistant-text "我记下来了。"
 python3 scripts/memory_capture_cycle.py --async-mode --session-key default --user-text "这周先优先排查支付模块的超时问题" --assistant-text "收到，我会先围绕支付超时排查。"
 python3 scripts/memory_analysis_results.py --session-key default
