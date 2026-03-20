@@ -18,14 +18,25 @@
 /plugin install skill-my-memory@skills-chinese-marketplace
 ```
 
+## Codex 安装
+
+Codex 当前没有 Claude marketplace 这一层，建议直接把 skill 链接到 `~/.codex/skills`：
+
+```bash
+mkdir -p ~/.codex/skills
+ln -s ~/Desktop/skill-my-memory-plugin/skills/personal-memory ~/.codex/skills/personal-memory
+```
+
 ## 安装后初始化
 
 插件安装后，`skills/personal-memory/` 下会带上服务代码、脚本、SQL 和依赖清单。
 
-在 Claude 安装目录对应的 skill 路径下执行：
+在 Claude 或 Codex 安装目录对应的 skill 路径下执行：
 
 ```bash
 cd ~/.claude/skills/personal-memory
+# 或
+cd ~/.codex/skills/personal-memory
 
 python3 -m venv .venv
 . .venv/bin/activate
@@ -41,6 +52,8 @@ psql -h "$LYB_SKILL_PG_ADDRESS" -p "$LYB_SKILL_PG_PORT" -U "$LYB_SKILL_PG_USERNA
 
 ```bash
 cd ~/.claude/skills/personal-memory
+# 或
+cd ~/.codex/skills/personal-memory
 . .venv/bin/activate
 
 python3 scripts/ensure_service.py
