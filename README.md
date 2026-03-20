@@ -18,20 +18,24 @@
 /plugin install skill-my-memory@skills-chinese-marketplace
 ```
 
-## Codex 安装
+## 一键初始化
 
-Codex 当前没有 Claude marketplace 这一层，建议直接把 skill 链接到 `~/.codex/skills`：
+如果是从 Git 仓库直接使用，推荐在仓库根目录执行：
 
 ```bash
-mkdir -p ~/.codex/skills
-ln -s ~/Desktop/skill-my-memory-plugin/skills/personal-memory ~/.codex/skills/personal-memory
+cd ~/path/to/skill-my-memory-plugin
+./install.sh
 ```
 
-## 安装后初始化
+这一步会自动完成：
 
-插件安装后，`skills/personal-memory/` 下会带上服务代码、脚本、SQL 和依赖清单。
+- 创建 `skills/personal-memory/.venv`
+- 安装 Python 依赖
+- 连接 PostgreSQL 执行建表和索引 SQL
+- 检查 `pgvector`
+- 启动本地 memory 服务并做一次 health check
 
-在 Claude 或 Codex 安装目录对应的 skill 路径下执行：
+如果你已经装到了 Claude/Codex 的 skill 目录里，也可以直接在 skill 目录执行：
 
 ```bash
 cd ~/.claude/skills/personal-memory
@@ -41,11 +45,24 @@ cd ~/.codex/skills/personal-memory
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+python3 scripts/bootstrap.py
+```
 
-psql -h "$LYB_SKILL_PG_ADDRESS" -p "$LYB_SKILL_PG_PORT" -U "$LYB_SKILL_PG_USERNAME" -d "$LYB_SKILL_PG_MY_PERSONAL_DATABASE" -f sql/001_schema.sql
-psql -h "$LYB_SKILL_PG_ADDRESS" -p "$LYB_SKILL_PG_PORT" -U "$LYB_SKILL_PG_USERNAME" -d "$LYB_SKILL_PG_MY_PERSONAL_DATABASE" -f sql/002_indexes.sql
-psql -h "$LYB_SKILL_PG_ADDRESS" -p "$LYB_SKILL_PG_PORT" -U "$LYB_SKILL_PG_USERNAME" -d "$LYB_SKILL_PG_MY_PERSONAL_DATABASE" -f sql/003_pgvector_upgrade.sql
-psql -h "$LYB_SKILL_PG_ADDRESS" -p "$LYB_SKILL_PG_PORT" -U "$LYB_SKILL_PG_USERNAME" -d "$LYB_SKILL_PG_MY_PERSONAL_DATABASE" -f sql/004_review_candidates.sql
+## Codex 安装
+
+Codex 当前没有 Claude marketplace 这一层，建议直接把 skill 链接到 `~/.codex/skills`：
+
+```bash
+mkdir -p ~/.codex/skills
+ln -s ~/Desktop/skill-my-memory-plugin/skills/personal-memory ~/.codex/skills/personal-memory
+```
+
+`bootstrap.py` 也支持附加参数：
+
+```bash
+python3 scripts/bootstrap.py --backfill-embeddings
+python3 scripts/bootstrap.py --skip-service
+python3 scripts/bootstrap.py --skip-db
 ```
 
 ## 常用命令
@@ -57,6 +74,7 @@ cd ~/.codex/skills/personal-memory
 . .venv/bin/activate
 
 python3 scripts/ensure_service.py
+python3 scripts/bootstrap.py
 python3 scripts/memory_capture.py --text "我喜欢黑咖啡"
 python3 scripts/memory_capture.py --text "记住我对象喜欢花" --auto-persist
 python3 scripts/review_candidates.py --limit 20
