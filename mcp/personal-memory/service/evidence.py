@@ -228,7 +228,7 @@ def evidence_supports_promotion(item: Dict[str, Any], evidence: Optional[Dict[st
     confidence = float(item.get("confidence") or 0.0)
     time_scope = str(item.get("time_scope") or evidence.get("time_scope") or TIME_MID_TERM)
 
-    if evidence_type == EVIDENCE_EXPLICIT and time_scope == TIME_LONG_TERM and confidence >= 0.8:
+    if evidence_type == EVIDENCE_EXPLICIT and time_scope == TIME_LONG_TERM and confidence >= 0.85:
         return True
     if evidence_type == EVIDENCE_EXPLICIT:
         return occurrence_count >= 2 or support_score >= 1.5

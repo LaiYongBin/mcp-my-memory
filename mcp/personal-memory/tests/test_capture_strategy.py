@@ -126,5 +126,36 @@ class AnalyzerFallbackStrategyTests(unittest.TestCase):
         self.assertIn("entity-link", item["tags"])
 
 
+class EvidencePromotionTests(unittest.TestCase):
+    def _item(self, evidence_type: str, time_scope: str, confidence: float, action: str = "long_term") -> dict:
+        return {"action": action, "evidence_type": evidence_type, "time_scope": time_scope, "confidence": confidence}
+
+    def _evidence(self, evidence_type: str, occurrence_count: int = 1, support_score: float = 0.0) -> dict:
+        return {"evidence_type": evidence_type, "occurrence_count": occurrence_count, "support_score": support_score}
+
+    def test_explicit_long_term_high_confidence_promotes(self) -> None:
+        from service.evidence import evidence_supports_promotion
+        self.assertTrue(evidence_supports_promotion(
+            self._item("explicit", "long_term", 0.85),
+            self._evidence("explicit"),
+        ))
+
+    def test_explicit_long_term_below_threshold_does_not_promote(self) -> None:
+        from service.evidence import evidence_supports_promotion
+        # confidence=0.84 is just below the 0.85 floor — must NOT fast-track promote
+        self.assertFalse(evidence_supports_promotion(
+            self._item("explicit", "long_term", 0.84),
+            self._evidence("explicit"),
+        ))
+
+    def test_explicit_enough_occurrence_promotes_regardless_of_confidence(self) -> None:
+        from service.evidence import evidence_supports_promotion
+        # occurrence_count >= 2 path is independent of the confidence floor
+        self.assertTrue(evidence_supports_promotion(
+            self._item("explicit", "mid_term", 0.6),
+            self._evidence("explicit", occurrence_count=2),
+        ))
+
+
 if __name__ == "__main__":
     unittest.main()
