@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, List, Optional, Sequence
@@ -497,8 +498,10 @@ def analyze_turn(
             items = [item for item in normalized if item]
             if items:
                 return items
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "analyzer LLM call failed, falling back to conservative analysis: %s", e
+            )
 
     return _fallback_analysis(cleaned)
 
