@@ -933,5 +933,67 @@ class BuildResponsePlanTests(unittest.TestCase):
         self.assertIn("轻量带入", plan.main_sentence_hint)
 
 
+class PersonalQueryPatternTests(unittest.TestCase):
+    def _decide(self, user_message: str) -> dict:
+        from service.mcp_server import _decide_recall
+        return _decide_recall(
+            user_message=user_message,
+            draft_response=None,
+            topic_hint=None,
+            memories=[],
+            contexts=[],
+        )
+
+    def test_generic_question_with_ni_does_not_trigger_personal_signal(self) -> None:
+        result = self._decide("你觉得 Python 和 Go 哪个更好？")
+        self.assertFalse(result["should_recall"])
+        self.assertNotIn("personalization opportunity in current turn", result["decision_reasons"])
+
+    def test_explicit_reference_triggers_personal_signal(self) -> None:
+        from service.mcp_server import _has_pattern, PERSONAL_QUERY_PATTERNS
+        self.assertTrue(_has_pattern("之前你说过我喜欢跑步", PERSONAL_QUERY_PATTERNS))
+
+    def test_single_ni_no_longer_in_patterns(self) -> None:
+        from service.mcp_server import PERSONAL_QUERY_PATTERNS
+        self.assertNotIn("你", PERSONAL_QUERY_PATTERNS)
+
+    def test_phrase_patterns_present(self) -> None:
+        from service.mcp_server import PERSONAL_QUERY_PATTERNS
+        self.assertIn("之前", PERSONAL_QUERY_PATTERNS)
+        self.assertIn("喜欢", PERSONAL_QUERY_PATTERNS)
+        self.assertIn("你知道我", PERSONAL_QUERY_PATTERNS)
+
+
+class EnrichRelatedEntitiesTests(unittest.TestCase):
+    def test_low_relevance_entity_memories_are_excluded(self) -> None:
+        from service.mcp_server import _enrich_related_entities
+        entities = [{"subject_key": "friend_a", "display_name": "小明", "disclosure_policy": "normal"}]
+        low_rel_memory = {
+            "subject_key": "friend_a",
+            "title": "低相关记忆",
+            "content": "某些无关内容",
+            "hybrid_score": 0.0,
+            "vector_score": 0.0,
+            "rank_score": 0.0,
+        }
+        enriched = _enrich_related_entities(entities=entities, memories=[low_rel_memory])
+        self.assertEqual([], enriched[0]["relationship_reasons"])
+
+    def test_high_relevance_entity_memory_contributes_reason(self) -> None:
+        from service.mcp_server import _enrich_related_entities
+        entities = [{"subject_key": "friend_a", "display_name": "小明", "disclosure_policy": "normal"}]
+        high_rel_memory = {
+            "subject_key": "friend_a",
+            "title": "小明是用户的朋友",
+            "content": "小明和用户一起工作",
+            "hybrid_score": 0.6,
+            "vector_score": 0.6,
+            "rank_score": 0.6,
+            "memory_type": "relationship",
+        }
+        enriched = _enrich_related_entities(entities=entities, memories=[high_rel_memory])
+        self.assertGreater(len(enriched[0]["relationship_reasons"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

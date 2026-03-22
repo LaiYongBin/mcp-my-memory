@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
@@ -80,6 +81,7 @@ def _compose_recall_query(
     return " ".join(part for part in parts if part)
 
 
+# 触发个性化召回的短语模式——使用短语而非单字，避免高频词误判
 PERSONAL_QUERY_PATTERNS = (
     "之前",
     "上次",
@@ -91,10 +93,11 @@ PERSONAL_QUERY_PATTERNS = (
     "家人",
     "项目",
     "我们",
-    "你",
-    "适合",
-    "推荐",
-    "提醒",
+    "适合我",
+    "推荐给我",
+    "提醒我",
+    "你知道我",
+    "你记得",
 )
 
 PERSONAL_MEMORY_PATTERNS = (
@@ -362,6 +365,7 @@ def _enrich_related_entities(
             item
             for item in memories
             if str(item.get("subject_key") or "").strip() == subject_key
+            and _memory_relevance(item, subject_key) >= 0.40
         ]
         relationship_reasons: List[str] = []
         for item in entity_memories:
@@ -610,7 +614,8 @@ def _build_recall_result(
             recent_hours=recent_context_hours,
             limit=recent_context_limit,
         )
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("recent_contexts fetch failed: %s", e)
         recent_contexts = []
     memory_groups = _bucket_recall_memories(memories, query_text)
     visible_memories = memory_groups["direct"] + memory_groups["contextual"]
