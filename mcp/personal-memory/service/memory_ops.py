@@ -1113,7 +1113,7 @@ def get_stale_for_challenge(
     conditions = [
         "user_code = %s",
         "lifecycle_state = ANY(%s)",
-        "is_explicit = false",
+        "is_explicit = %s",
         "(last_recalled_at IS NULL OR last_recalled_at < now() - (%s || ' days')::interval)",
         "deleted_at IS NULL",
         "status != 'archived'",
@@ -1121,6 +1121,7 @@ def get_stale_for_challenge(
     params: List[Any] = [
         resolved_user,
         ["cold", "stale"],
+        False,
         str(min_days_since_recall),
     ]
     if memory_types:
@@ -1130,7 +1131,7 @@ def get_stale_for_challenge(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT *
+            SELECT {MEMORY_SELECT_COLUMNS}
             FROM memory_record
             WHERE {where_sql}
             ORDER BY confidence DESC, importance DESC
