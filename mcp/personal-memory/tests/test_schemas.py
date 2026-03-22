@@ -141,16 +141,29 @@ class SchemaModelTests(unittest.TestCase):
         plan = RecommendedResponsePlan()
         self.assertEqual("answer_normally", plan.primary_answer_style)
         self.assertEqual("", plan.main_sentence_hint)
-        self.assertIsInstance(plan.inline_memories, list)
-        self.assertIsInstance(plan.soft_mentions, list)
-        self.assertIsInstance(plan.internal_only, list)
-        self.assertIsInstance(plan.followup_hooks, list)
+        self.assertEqual([], plan.inline_memories)
+        self.assertEqual([], plan.soft_mentions)
+        self.assertEqual([], plan.internal_only)
+        self.assertEqual([], plan.followup_hooks)
 
     def test_recall_result_has_response_plan(self) -> None:
-        from service.schemas import RecallResult
+        from service.schemas import RecallResult, RecommendedResponsePlan
         result = RecallResult(query_text="test")
         self.assertIsNotNone(result.recommended_response_plan)
-        self.assertEqual("answer_normally", result.recommended_response_plan.primary_answer_style)
+        # verify field survives model_dump
+        dumped = result.model_dump()
+        self.assertIn("recommended_response_plan", dumped)
+        plan_dict = dumped["recommended_response_plan"]
+        self.assertEqual("answer_normally", plan_dict["primary_answer_style"])
+        self.assertEqual([], plan_dict["inline_memories"])
+        # verify custom plan can be constructed and set
+        custom = RecommendedResponsePlan(
+            primary_answer_style="direct_personalization",
+            inline_memories=["用户喜欢黑咖啡"],
+        )
+        result2 = RecallResult(query_text="test", recommended_response_plan=custom)
+        self.assertEqual("direct_personalization", result2.recommended_response_plan.primary_answer_style)
+        self.assertEqual(["用户喜欢黑咖啡"], result2.recommended_response_plan.inline_memories)
 
 
 if __name__ == "__main__":
