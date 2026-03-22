@@ -1039,5 +1039,53 @@ class PhraseStopwordTests(unittest.TestCase):
         self.assertGreater(score, 0.0)
 
 
+class TurnCountTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        from service import mcp_server
+        self.server = mcp_server.create_server()
+
+    @patch("service.mcp_server.sync_session_context")
+    @patch("service.mcp_server.run_capture_cycle")
+    @patch("service.mcp_server.search_recent_context_summaries")
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_sync_every_n_turns_skips_sync_on_non_nth_turn(
+        self,
+        search_memories_mock,
+        search_context_mock,
+        recent_context_mock,
+        run_capture_cycle_mock,
+        sync_session_context_mock,
+    ) -> None:
+        search_memories_mock.return_value = []
+        search_context_mock.return_value = []
+        recent_context_mock.return_value = []
+        run_capture_cycle_mock.return_value = {
+            "event_count": 1, "analysis_result_count": 0, "persisted_count": 0
+        }
+        sync_session_context_mock.return_value = {
+            "event_count": 0, "segment_snapshot": None,
+            "topic_snapshot": None, "global_topic_snapshot": None, "memory_sync": None,
+        }
+
+        # 重置 turn 计数（隔离测试）
+        import service.mcp_server as mcp_srv
+        mcp_srv._session_turn_counts.pop("test-sync-n", None)
+
+        # 第 1 轮（N=3 时，不是第 N 轮），不应触发 sync
+        await self.server.call_tool(
+            "orchestrate_turn_memory",
+            {
+                "user_message": "第一轮消息",
+                "assistant_text": "回复一",
+                "session_key": "test-sync-n",
+                "capture_after_response": True,
+                "sync_every_n_turns": 3,
+            },
+        )
+        # sync_session_context 不应在 sync_every_n_turns=3 且第 1 轮时被调用
+        sync_session_context_mock.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

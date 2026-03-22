@@ -62,6 +62,16 @@ from service.schemas import (
 )
 
 
+# B2: per-session turn counter (process-local, resets on restart)
+_session_turn_counts: Dict[str, int] = {}
+
+
+def _increment_turn_count(session_key: str) -> int:
+    count = _session_turn_counts.get(session_key, 0) + 1
+    _session_turn_counts[session_key] = count
+    return count
+
+
 def _service_host() -> str:
     return os.environ.get("LYB_SKILL_MEMORY_SERVICE_HOST", "127.0.0.1")
 
@@ -1152,6 +1162,7 @@ def create_server(
         consolidate: bool = True,
         sync_context: bool = True,
         capture_after_response: bool = False,
+        sync_every_n_turns: int = 0,  # 0=每次都同步，N>0=每 N 轮同步一次
     ) -> TurnOrchestrationResult:
         recall = _build_recall_result(
             user_message=user_message,
@@ -1176,6 +1187,12 @@ def create_server(
             "should_capture": should_capture,
         }
         executed_capture = None
+        # B2: determine whether to sync this turn
+        if sync_every_n_turns > 0:
+            turn_count = _increment_turn_count(session_key)
+            should_sync = (turn_count % sync_every_n_turns == 0)
+        else:
+            should_sync = sync_context
         if should_capture and capture_after_response and assistant_text.strip():
             executed_capture = _execute_capture_turn(
                 user_text=user_message,
@@ -1185,7 +1202,7 @@ def create_server(
                 topic_hint=topic_hint,
                 source_ref=source_ref,
                 consolidate=consolidate,
-                sync_context=sync_context,
+                sync_context=should_sync,
             ).model_dump()
         return TurnOrchestrationResult(
             recall=recall.model_dump(),
