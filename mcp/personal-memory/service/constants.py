@@ -132,3 +132,7 @@ RECALL_SCORE_WEIGHTS = {
     "personal_query_signal": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_PERS_QRY", "0.15")),
     "topic_continuity": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_TOPIC", "0.15")),
 }
+
+# C3: global topic anti-inflation
+MAX_GLOBAL_TOPIC_CHARS = int(os.getenv("LYB_SKILL_MEMORY_MAX_GLOBAL_TOPIC_CHARS", "2000"))
+_COMPRESSION_PREFIX = "[早期内容已压缩]\n"

@@ -15,6 +15,7 @@ from service.capture_cycle import _resolve_user, record_conversation_event, reso
 from service.constants import (
     ACTION_LONG_TERM,
     EVENT_SESSION_SYNC,
+    MAX_GLOBAL_TOPIC_CHARS,
     ROLE_ASSISTANT,
     ROLE_USER,
     SNAPSHOT_GLOBAL_TOPIC,
@@ -22,6 +23,7 @@ from service.constants import (
     SNAPSHOT_TOPIC,
     STATUS_ACTIVE,
     STATUS_PENDING,
+    _COMPRESSION_PREFIX,
 )
 from service.db import get_conn
 from service.evidence import accumulate_evidence, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
@@ -545,6 +547,18 @@ def sync_session_context(
         user_code=resolved_user,
         topic_key=segment["topic_key"],
     )
+    # C3: 截断过长的 global topic summary，防止无限增长
+    if existing_global_topic:
+        existing_summary_str = existing_global_topic.get("summary") or ""
+        if len(existing_summary_str) > MAX_GLOBAL_TOPIC_CHARS:
+            clean_str = existing_summary_str
+            while clean_str.startswith(_COMPRESSION_PREFIX):
+                clean_str = clean_str[len(_COMPRESSION_PREFIX):]
+            keep_from = max(0, len(clean_str) - int(MAX_GLOBAL_TOPIC_CHARS * 0.8))
+            existing_global_topic = {
+                **existing_global_topic,
+                "summary": _COMPRESSION_PREFIX + clean_str[keep_from:]
+            }
     existing_global_event_ids = (
         _merge_source_event_ids(existing_global_topic.get("source_event_ids") or [], [])
         if existing_global_topic
