@@ -498,6 +498,8 @@ def analyze_turn(
             items = [item for item in normalized if item]
             if items:
                 return items
+            # LLM 正常返回但未提取到有效记忆项，内容本身无记忆价值，走保守 fallback
+            return _fallback_analysis(cleaned)
         except Exception as e:
             logging.getLogger(__name__).warning(
                 "analyzer LLM call failed, falling back to conservative analysis: %s", e
