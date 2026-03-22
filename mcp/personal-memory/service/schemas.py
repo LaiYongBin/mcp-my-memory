@@ -260,10 +260,16 @@ class RecommendedResponsePlan(BaseModel):
 
 
 class InternalStrategy(BaseModel):
+    # --- 以下字段在 RecallResult 顶层已有同名/同义字段，仅为向后兼容保留 ---
+    # style 同 RecallResult.suggested_integration_style
     style: str = "answer_normally"
+    # should_recall 同 RecallResult.should_recall
     should_recall: bool = False
+    # reasons 同 RecallResult.decision_reasons
     reasons: List[str] = Field(default_factory=list)
+    # followup_hooks 同 RecallResult.suggested_followup_hooks
     followup_hooks: List[str] = Field(default_factory=list)
+    # --- 以下是 InternalStrategy 独有的细节字段（调用方按需使用）---
     hook_entries: List[HookEntry] = Field(default_factory=list)
     recommended_primary_hook: Optional[HookEntry] = None
     recommended_secondary_hooks: List[HookEntry] = Field(default_factory=list)
