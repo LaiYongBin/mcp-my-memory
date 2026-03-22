@@ -127,6 +127,22 @@ def _has_pattern(text: str, patterns: tuple[str, ...]) -> bool:
     return any(pattern.lower() in text for pattern in patterns)
 
 
+def _has_negated_pattern(text: str, patterns: tuple[str, ...], negation_chars: str = "不没别未无非") -> bool:
+    """若匹配位置紧前 2 字含否定词，视为否定命中，跳过；否则等同 _has_pattern。
+    注意：否定词集仅覆盖单字否定词，不覆盖「没有」「不是」等二字结构。"""
+    for pattern in patterns:
+        start = 0
+        while True:
+            idx = text.find(pattern, start)
+            if idx < 0:
+                break
+            prefix = text[max(0, idx - 2):idx]
+            if not any(neg in prefix for neg in negation_chars):
+                return True
+            start = idx + 1
+    return False
+
+
 def _memory_strength(item: Dict[str, Any]) -> float:
     confidence = float(item.get("confidence", 0.0) or 0.0)
     explicit_bonus = 0.15 if item.get("is_explicit") else 0.0
@@ -508,7 +524,7 @@ def _decide_recall(
     top_memory_strength = _memory_strength(top_memory or {})
     top_memory_relevance = _memory_relevance(top_memory or {}, query_text)
     top_context_strength = _context_strength(top_context or {})
-    query_has_personal_signal = _has_pattern(query_text, PERSONAL_QUERY_PATTERNS)
+    query_has_personal_signal = _has_negated_pattern(query_text, PERSONAL_QUERY_PATTERNS)
 
     memory_signal_text = _normalized_text(
         [

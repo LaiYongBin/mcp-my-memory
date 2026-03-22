@@ -995,5 +995,31 @@ class EnrichRelatedEntitiesTests(unittest.TestCase):
         self.assertGreater(len(enriched[0]["relationship_reasons"]), 0)
 
 
+class NegationPatternTests(unittest.TestCase):
+    def _decide(self, user_message: str) -> dict:
+        from service.mcp_server import _decide_recall
+        return _decide_recall(
+            user_message=user_message,
+            draft_response=None,
+            topic_hint=None,
+            memories=[],
+            contexts=[],
+        )
+
+    def test_negated_like_does_not_trigger(self) -> None:
+        # "不喜欢" 前 2 字含否定词，不应触发
+        result = self._decide("我不喜欢这个")
+        self.assertFalse(result["should_recall"])
+
+    def test_positive_like_triggers(self) -> None:
+        from service.mcp_server import _has_negated_pattern, PERSONAL_QUERY_PATTERNS
+        self.assertTrue(_has_negated_pattern("我喜欢咖啡", PERSONAL_QUERY_PATTERNS))
+
+    def test_negation_not_in_prefix_still_matches(self) -> None:
+        # 否定词不在紧前 2 字，仍命中
+        from service.mcp_server import _has_negated_pattern, PERSONAL_QUERY_PATTERNS
+        self.assertTrue(_has_negated_pattern("完全不知道我喜欢什么", PERSONAL_QUERY_PATTERNS))
+
+
 if __name__ == "__main__":
     unittest.main()
