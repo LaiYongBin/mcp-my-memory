@@ -172,6 +172,7 @@ class MaintenanceResult(MCPResultBase):
     changed_ids: List[int] = Field(default_factory=list)
     lifecycle_counts: Dict[str, int] = Field(default_factory=dict)
     updated_memories: List[Dict[str, Any]] = Field(default_factory=list)
+    filter_applied: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TurnOrchestrationResult(MCPResultBase):

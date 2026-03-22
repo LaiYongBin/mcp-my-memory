@@ -702,6 +702,9 @@ def maintain_memory_store(
     limit: int = 200,
     dry_run: bool = False,
     include_archived: bool = False,
+    lifecycle_states: Optional[List[str]] = None,
+    memory_types: Optional[List[str]] = None,
+    categories: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     resolved_user = _resolve_user(user_code)
     conditions = ["user_code = %s", "deleted_at IS NULL"]
@@ -709,6 +712,15 @@ def maintain_memory_store(
     if not include_archived:
         conditions.append("status = %s")
         params.append(STATUS_ACTIVE)
+    if lifecycle_states:
+        conditions.append("lifecycle_state = ANY(%s)")
+        params.append(lifecycle_states)
+    if memory_types:
+        conditions.append("memory_type = ANY(%s)")
+        params.append(memory_types)
+    if categories:
+        conditions.append("category = ANY(%s)")
+        params.append(categories)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""
@@ -777,6 +789,13 @@ def maintain_memory_store(
         "changed_ids": [item["id"] for item in updates],
         "lifecycle_counts": lifecycle_counts,
         "updated_memories": updates[:20],
+        "filter_applied": {
+            k: v for k, v in {
+                "lifecycle_states": lifecycle_states,
+                "memory_types": memory_types,
+                "categories": categories,
+            }.items() if v is not None
+        },
     }
 
 

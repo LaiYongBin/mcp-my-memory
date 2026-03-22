@@ -714,6 +714,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             "changed_ids": [4, 7],
             "lifecycle_counts": {"cold": 1, "stale": 1},
             "updated_memories": [{"id": 4}, {"id": 7}],
+            "filter_applied": {},
         }
 
         _, structured = await self.server.call_tool(
@@ -730,6 +731,9 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             limit=50,
             dry_run=False,
             include_archived=True,
+            lifecycle_states=None,
+            memory_types=None,
+            categories=None,
         )
         self.assertEqual(5, structured["scanned_count"])
         self.assertEqual(2, structured["updated_count"])

@@ -1099,12 +1099,18 @@ def create_server(
         limit: int = 200,
         dry_run: bool = False,
         include_archived: bool = False,
+        lifecycle_states: Optional[List[str]] = None,
+        memory_types: Optional[List[str]] = None,
+        categories: Optional[List[str]] = None,
     ) -> MaintenanceResult:
         result = maintain_memory_store(
             user_code=user_code,
             limit=limit,
             dry_run=dry_run,
             include_archived=include_archived,
+            lifecycle_states=lifecycle_states,
+            memory_types=memory_types,
+            categories=categories,
         )
         return MaintenanceResult(**result)
 
