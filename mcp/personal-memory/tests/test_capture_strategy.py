@@ -205,7 +205,8 @@ class WorkingMemoryPromotionTests(unittest.TestCase):
              patch("service.capture_cycle.accumulate_evidence") as mock_acc, \
              patch("service.capture_cycle.evidence_supports_promotion") as mock_sup, \
              patch("service.capture_cycle.promoted_confidence") as mock_conf, \
-             patch("service.capture_cycle.upsert_memory") as mock_upsert:
+             patch("service.capture_cycle.upsert_memory") as mock_upsert, \
+             patch("service.capture_cycle.mark_evidence_promoted") as mock_mark_promoted:
 
             mock_cursor = MagicMock()
             mock_cursor.fetchall.side_effect = [[], [fake_row]]
@@ -215,12 +216,14 @@ class WorkingMemoryPromotionTests(unittest.TestCase):
             mock_acc.return_value = {"id": 1, "occurrence_count": 3, "support_score": 2.0}
             mock_sup.return_value = True
             mock_conf.return_value = 0.85
+            mock_upsert.return_value = {"id": 42}
 
             cc.consolidate_working_memories(user_code="LYB")
 
             mock_acc.assert_called_once()
             mock_sup.assert_called_once()
             mock_upsert.assert_called_once()
+            mock_mark_promoted.assert_called_once_with(1, 42)
 
 
 if __name__ == "__main__":

@@ -286,14 +286,14 @@ def consolidate_working_memories(
             "category": "current_goal",
             "evidence_type": "observed",
             "time_scope": "short_term",
-            "action": "long_term",
+            "action": ACTION_LONG_TERM,
             "confidence": 0.6,
             "conflict_scope": f"user.working_memory.{content_hash}",
             "tags": [],
         }
         evidence = accumulate_evidence(user_code=resolved_user, item=pseudo_item)
         if evidence and evidence_supports_promotion(pseudo_item, evidence):
-            upsert_memory(
+            upserted = upsert_memory(
                 {
                     "user_code": resolved_user,
                     "memory_type": "fact",
@@ -311,6 +311,9 @@ def consolidate_working_memories(
                     "value_text": summary[:500],
                 }
             )
+            memory_id = upserted.get("id") if isinstance(upserted, dict) else None
+            if memory_id:
+                mark_evidence_promoted(int(evidence["id"]), int(memory_id))
             promoted.append({"summary": summary})
             # 标记已提升
             with get_conn() as conn2, conn2.cursor() as cur2:
