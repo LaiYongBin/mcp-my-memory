@@ -3,9 +3,11 @@ import unittest
 
 class GlobalTopicAntiInflationTests(unittest.TestCase):
     def test_constants_exist(self) -> None:
-        from service.constants import MAX_GLOBAL_TOPIC_CHARS
+        from service.constants import MAX_GLOBAL_TOPIC_CHARS, _COMPRESSION_PREFIX
         self.assertIsInstance(MAX_GLOBAL_TOPIC_CHARS, int)
         self.assertGreater(MAX_GLOBAL_TOPIC_CHARS, 100)
+        self.assertIsInstance(_COMPRESSION_PREFIX, str)
+        self.assertGreater(len(_COMPRESSION_PREFIX), 0)
 
     def test_no_prefix_duplication_after_multiple_truncations(self) -> None:
         """多次调用截断逻辑，前缀不应重复叠加。"""
