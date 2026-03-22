@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from service.constants import (
     DISCLOSURE_INTERNAL_ONLY,
     DEFAULT_SESSION_KEY,
+    RECALL_SCORE_WEIGHTS,
     SNAPSHOT_SEGMENT,
     SNAPSHOT_TOPIC,
     SOURCE_MANUAL,
@@ -564,33 +565,33 @@ def _decide_recall(
     reasons: List[str] = []
 
     if top_memory_strength >= 0.85:
-        score += 0.45
+        score += RECALL_SCORE_WEIGHTS["high_confidence_memory"]
         reasons.append("high-confidence memory")
     elif top_memory_strength >= 0.65:
-        score += 0.25
+        score += RECALL_SCORE_WEIGHTS["usable_memory_match"]
         reasons.append("usable memory match")
 
     if top_memory and top_memory.get("is_explicit"):
-        score += 0.15
+        score += RECALL_SCORE_WEIGHTS["explicit_memory"]
         reasons.append("explicit memory")
 
     if top_memory_relevance >= 0.55:
-        score += 0.25
+        score += RECALL_SCORE_WEIGHTS["strong_semantic"]
         reasons.append("strong semantic relevance")
     elif top_memory_relevance >= 0.45:
-        score += 0.12
+        score += RECALL_SCORE_WEIGHTS["moderate_semantic"]
         reasons.append("moderate semantic relevance")
 
     if memory_has_personal_signal:
-        score += 0.2
+        score += RECALL_SCORE_WEIGHTS["personal_memory_signal"]
         reasons.append("personal link in retrieved memory")
 
     if query_has_personal_signal:
-        score += 0.15
+        score += RECALL_SCORE_WEIGHTS["personal_query_signal"]
         reasons.append("personalization opportunity in current turn")
 
     if topic_hint and top_context_strength >= 0.4:
-        score += 0.15
+        score += RECALL_SCORE_WEIGHTS["topic_continuity"]
         reasons.append("ongoing topic continuity")
 
     if not query_has_personal_signal and top_memory_relevance < 0.45:

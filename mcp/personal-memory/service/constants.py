@@ -120,3 +120,15 @@ DisclosurePolicy: TypeAlias = Literal["normal", "gentle", "user_confirm", "inter
 
 # B3: Hybrid search feature flag
 HYBRID_SEARCH_ENABLED = os.getenv("LYB_SKILL_MEMORY_DB_HYBRID_SEARCH", "false").lower() == "true"
+
+# B4: Recall score weights — configurable via environment variables
+RECALL_SCORE_WEIGHTS = {
+    "high_confidence_memory": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_HIGH_CONF", "0.45")),
+    "usable_memory_match": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_USABLE", "0.25")),
+    "explicit_memory": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_EXPLICIT", "0.15")),
+    "strong_semantic": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_STRONG_SEM", "0.25")),
+    "moderate_semantic": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_MOD_SEM", "0.12")),
+    "personal_memory_signal": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_PERS_MEM", "0.20")),
+    "personal_query_signal": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_PERS_QRY", "0.15")),
+    "topic_continuity": float(os.getenv("LYB_SKILL_MEMORY_WEIGHT_TOPIC", "0.15")),
+}

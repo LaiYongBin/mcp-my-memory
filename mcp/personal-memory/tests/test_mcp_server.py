@@ -1087,5 +1087,26 @@ class TurnCountTests(unittest.IsolatedAsyncioTestCase):
         sync_session_context_mock.assert_not_called()
 
 
+class RecallWeightConfigTests(unittest.TestCase):
+    def test_recall_score_weights_exist_in_constants(self) -> None:
+        from service.constants import RECALL_SCORE_WEIGHTS
+        self.assertIn("high_confidence_memory", RECALL_SCORE_WEIGHTS)
+        self.assertIn("usable_memory_match", RECALL_SCORE_WEIGHTS)
+        self.assertIn("explicit_memory", RECALL_SCORE_WEIGHTS)
+
+    def test_env_override_changes_weight(self) -> None:
+        import os
+        import importlib
+        os.environ["LYB_SKILL_MEMORY_WEIGHT_HIGH_CONF"] = "0.99"
+        try:
+            import service.constants
+            importlib.reload(service.constants)
+            from service.constants import RECALL_SCORE_WEIGHTS
+            self.assertAlmostEqual(0.99, RECALL_SCORE_WEIGHTS["high_confidence_memory"])
+        finally:
+            del os.environ["LYB_SKILL_MEMORY_WEIGHT_HIGH_CONF"]
+            importlib.reload(service.constants)
+
+
 if __name__ == "__main__":
     unittest.main()
