@@ -1021,5 +1021,19 @@ class NegationPatternTests(unittest.TestCase):
         self.assertTrue(_has_negated_pattern("完全不知道我喜欢什么", PERSONAL_QUERY_PATTERNS))
 
 
+class PhraseStopwordTests(unittest.TestCase):
+    def test_stopword_phrase_does_not_score(self) -> None:
+        from service.mcp_server import _shared_phrase_relevance
+        # "工作" 是停用词，不应计分
+        score = _shared_phrase_relevance("我今天工作很忙", "工作")
+        self.assertEqual(0.0, score)
+
+    def test_non_stopword_phrase_scores(self) -> None:
+        from service.mcp_server import _shared_phrase_relevance
+        # "咖啡" 不是停用词，应有分数
+        score = _shared_phrase_relevance("我喜欢咖啡", "咖啡")
+        self.assertGreater(score, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

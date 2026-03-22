@@ -115,6 +115,15 @@ PERSONAL_MEMORY_PATTERNS = (
 )
 
 
+_PHRASE_STOPWORDS = frozenset({
+    "工作", "我们", "时候", "可以", "一个", "这个", "那个", "什么",
+    "如何", "怎么", "为什么", "为什", "因为", "所以", "但是", "然后", "现在",
+    "已经", "还是", "还有", "或者", "并且", "这样", "那样", "一些",
+    "很多", "非常", "特别", "感觉", "觉得", "认为", "知道", "看到",
+    # 注意：停用词集仅覆盖已知高频词，滑窗算法本身可能产生无意义子串匹配
+})
+
+
 def _normalized_text(value: Any) -> str:
     if value is None:
         return ""
@@ -170,6 +179,8 @@ def _shared_phrase_relevance(left: str, right: str) -> float:
         for index in range(0, len(shorter) - window + 1):
             phrase = shorter[index : index + window]
             if phrase and phrase in longer:
+                if phrase in _PHRASE_STOPWORDS:
+                    continue
                 return 0.55 if window >= 3 else 0.45
     return 0.0
 
