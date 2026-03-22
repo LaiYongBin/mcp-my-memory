@@ -136,5 +136,22 @@ class SchemaModelTests(unittest.TestCase):
         self.assertIsInstance(result.internal_strategy.recommended_secondary_hooks[1], FactHintHookEntry)
 
 
+    def test_recommended_response_plan_defaults(self) -> None:
+        from service.schemas import RecommendedResponsePlan
+        plan = RecommendedResponsePlan()
+        self.assertEqual("answer_normally", plan.primary_answer_style)
+        self.assertEqual("", plan.main_sentence_hint)
+        self.assertIsInstance(plan.inline_memories, list)
+        self.assertIsInstance(plan.soft_mentions, list)
+        self.assertIsInstance(plan.internal_only, list)
+        self.assertIsInstance(plan.followup_hooks, list)
+
+    def test_recall_result_has_response_plan(self) -> None:
+        from service.schemas import RecallResult
+        result = RecallResult(query_text="test")
+        self.assertIsNotNone(result.recommended_response_plan)
+        self.assertEqual("answer_normally", result.recommended_response_plan.primary_answer_style)
+
+
 if __name__ == "__main__":
     unittest.main()

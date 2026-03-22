@@ -236,6 +236,22 @@ HookEntry = Annotated[
 ]
 
 
+class RecommendedResponsePlan(BaseModel):
+    """调用方可以直接消费的回答规划，无需解读 internal_strategy。"""
+
+    primary_answer_style: str = "answer_normally"
+    # 主句提示：如何在回答里自然融入最重要的一条记忆
+    main_sentence_hint: str = ""
+    # 可直接写进回答的记忆摘要（来自 direct 层）
+    inline_memories: List[str] = Field(default_factory=list)
+    # 轻量提及，不喧宾夺主（来自 contextual 层）
+    soft_mentions: List[str] = Field(default_factory=list)
+    # 仅供内部参考，不对用户说（来自 suppressed 层 + internal_only hooks）
+    internal_only: List[str] = Field(default_factory=list)
+    # 回答后可轻量延展的话题
+    followup_hooks: List[str] = Field(default_factory=list)
+
+
 class InternalStrategy(BaseModel):
     style: str = "answer_normally"
     should_recall: bool = False
@@ -278,3 +294,6 @@ class RecallResult(MCPResultBase):
     internal_strategy: InternalStrategy = Field(default_factory=InternalStrategy)
     internal_strategy_summary: str = ""
     disclosure_warnings: List[str] = Field(default_factory=list)
+    recommended_response_plan: RecommendedResponsePlan = Field(
+        default_factory=RecommendedResponsePlan
+    )
