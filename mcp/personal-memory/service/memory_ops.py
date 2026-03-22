@@ -1,5 +1,6 @@
 """Core PostgreSQL memory operations."""
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -933,7 +934,6 @@ def merge_memory_pair(
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """合并 slave 到 master，slave 归档，master 追加内容和 tags。"""
-    import json
     master = get_memory(master_id, user_code)
     slave = get_memory(slave_id, user_code)
     if not master or not slave:
@@ -960,18 +960,18 @@ def merge_memory_pair(
     with get_conn() as conn, conn.cursor() as cur:
         # slave 归档
         cur.execute(
-            "UPDATE memory_record SET status = 'archived', updated_at = now() WHERE id = %s",
-            (slave_id,)
+            "UPDATE memory_record SET status = 'archived', updated_at = now() WHERE id = %s AND user_code = %s",
+            (slave_id, user_code)
         )
         # master 设置 supersedes_id
         cur.execute(
-            "UPDATE memory_record SET supersedes_id = %s, updated_at = now() WHERE id = %s",
-            (slave_id, master_id)
+            "UPDATE memory_record SET supersedes_id = %s, updated_at = now() WHERE id = %s AND user_code = %s",
+            (slave_id, master_id, user_code)
         )
         # master 更新 content 和 tags
         cur.execute(
-            "UPDATE memory_record SET content = %s, tags = %s::jsonb, updated_at = now() WHERE id = %s",
-            (merged_content, json.dumps(merged_tags), master_id)
+            "UPDATE memory_record SET content = %s, tags = %s::jsonb, updated_at = now() WHERE id = %s AND user_code = %s",
+            (merged_content, json.dumps(merged_tags), master_id, user_code)
         )
         conn.commit()
 
