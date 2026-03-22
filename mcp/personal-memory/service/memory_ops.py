@@ -905,6 +905,14 @@ def _search_memories_hybrid(
     include_archived: bool = False,
 ) -> List[Dict[str, Any]]:
     archived_filter = "" if include_archived else "AND mr.status != 'archived'"
+    extra_conditions = ""
+    extra_params: List[Any] = []
+    if memory_type:
+        extra_conditions += " AND mr.memory_type = %s"
+        extra_params.append(resolve_lookup_value(DOMAIN_MEMORY_TYPE, memory_type) or memory_type)
+    if tags:
+        extra_conditions += " AND mr.tags ?| %s"
+        extra_params.append(tags)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""
@@ -919,7 +927,9 @@ def _search_memories_hybrid(
             FROM memory_record mr
             LEFT JOIN memory_vector_chunk mvc ON mvc.memory_id = mr.id AND mvc.chunk_index = 0
             WHERE mr.user_code = %s
+              AND mr.deleted_at IS NULL
               {archived_filter}
+              {extra_conditions}
               AND (
                   mr.search_vector @@ websearch_to_tsquery('simple', %s)
                   OR (mvc.embedding IS NOT NULL AND (mvc.embedding <=> %s::vector) < 0.5)
@@ -934,9 +944,10 @@ def _search_memories_hybrid(
                 Vector(query_vec),   # COALESCE vector
                 query_text,          # COALESCE else rank
                 user_code,           # WHERE user_code
+                *extra_params,       # WHERE memory_type / tags (optional)
                 query_text,          # WHERE full-text
                 Vector(query_vec),   # WHERE vector
                 limit,
             ),
         )
-        return [dict(row) for row in cur.fetchall()]
+        return [apply_memory_governance(dict(row)) for row in cur.fetchall()]
