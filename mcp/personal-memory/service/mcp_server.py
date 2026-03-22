@@ -1,0 +1,1127 @@
+"""Local MCP server for personal memory tools."""
+
+from __future__ import annotations
+
+import argparse
+import os
+from typing import Any, Dict, List, Optional
+
+from mcp.server.fastmcp import FastMCP
+
+from service.constants import (
+    DISCLOSURE_INTERNAL_ONLY,
+    DEFAULT_SESSION_KEY,
+    SNAPSHOT_SEGMENT,
+    SNAPSHOT_TOPIC,
+    SOURCE_MANUAL,
+    STATUS_ACTIVE,
+)
+from service.capture_cycle import run_capture_cycle
+from service.context_snapshots import (
+    search_context_snapshots,
+    search_recent_context_summaries,
+    sync_session_context,
+)
+from service.domain_registry import (
+    approve_domain_candidate,
+    list_domain_candidates,
+    list_domain_values,
+    merge_domain_alias,
+    reject_domain_candidate,
+)
+from service.entity_graph import (
+    infer_edge_relation_type,
+    rebuild_entity_graph,
+    search_entities,
+    search_entity_relationships,
+)
+from service.entity_memory import summarize_entities_from_memories
+from service.memory_ops import (
+    archive_memory,
+    delete_memory as delete_memory_row,
+    maintain_memory_store,
+    mark_memories_recalled,
+    search_memories,
+    search_memories_by_time_range,
+    upsert_memory,
+)
+from service.memory_governance import apply_memory_governance
+from service.schemas import (
+    AliasMutationResult,
+    CaptureTurnResult,
+    ContextMutationResult,
+    DomainMutationResult,
+    ItemListResult,
+    MaintenanceResult,
+    MemoryMutationResult,
+    MemoryWindowField,
+    RecallResult,
+    TurnOrchestrationResult,
+)
+
+
+def _service_host() -> str:
+    return os.environ.get("LYB_SKILL_MEMORY_SERVICE_HOST", "127.0.0.1")
+
+
+def _service_port() -> int:
+    return int(os.environ.get("LYB_SKILL_MEMORY_SERVICE_PORT", "8787"))
+
+
+def _compose_recall_query(
+    user_message: str, draft_response: Optional[str] = None, topic_hint: Optional[str] = None
+) -> str:
+    parts = [user_message.strip()]
+    if topic_hint and topic_hint.strip():
+        parts.append(topic_hint.strip())
+    if draft_response and draft_response.strip():
+        parts.append(draft_response.strip())
+    return " ".join(part for part in parts if part)
+
+
+PERSONAL_QUERY_PATTERNS = (
+    "之前",
+    "上次",
+    "记得",
+    "偏好",
+    "喜欢",
+    "朋友",
+    "对象",
+    "家人",
+    "项目",
+    "我们",
+    "你",
+    "适合",
+    "推荐",
+    "提醒",
+)
+
+PERSONAL_MEMORY_PATTERNS = (
+    "朋友",
+    "对象",
+    "家人",
+    "喜欢",
+    "偏好",
+    "favorite_",
+    "兴趣爱好",
+    "健康",
+    "高血压",
+    "项目",
+    "规则",
+)
+
+
+def _normalized_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return " ".join(_normalized_text(item) for item in value)
+    return str(value).strip().lower()
+
+
+def _has_pattern(text: str, patterns: tuple[str, ...]) -> bool:
+    return any(pattern.lower() in text for pattern in patterns)
+
+
+def _memory_strength(item: Dict[str, Any]) -> float:
+    confidence = float(item.get("confidence", 0.0) or 0.0)
+    explicit_bonus = 0.15 if item.get("is_explicit") else 0.0
+    hybrid_score = float(item.get("hybrid_score", item.get("rank_score", 0.0)) or 0.0)
+    semantic_bonus = min(hybrid_score, 0.4)
+    return min(confidence + explicit_bonus + semantic_bonus, 1.0)
+
+
+def _context_strength(item: Dict[str, Any]) -> float:
+    topic = _normalized_text(item.get("topic"))
+    summary = _normalized_text(item.get("summary"))
+    if not topic and not summary:
+        return 0.0
+    return 0.45 if topic else 0.3
+
+
+def _shared_phrase_relevance(left: str, right: str) -> float:
+    left = "".join(left.split())
+    right = "".join(right.split())
+    if not left or not right:
+        return 0.0
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    max_window = min(4, len(shorter))
+    for window in range(max_window, 1, -1):
+        for index in range(0, len(shorter) - window + 1):
+            phrase = shorter[index : index + window]
+            if phrase and phrase in longer:
+                return 0.55 if window >= 3 else 0.45
+    return 0.0
+
+
+def _memory_relevance(item: Dict[str, Any], query_text: str) -> float:
+    item_text = _normalized_text(
+        [
+            item.get("title"),
+            item.get("content"),
+            item.get("summary"),
+            item.get("attribute_key"),
+            item.get("value_text"),
+        ]
+    )
+    return max(
+        float(item.get("hybrid_score", 0.0) or 0.0),
+        float(item.get("vector_score", 0.0) or 0.0),
+        float(item.get("rank_score", 0.0) or 0.0),
+        _shared_phrase_relevance(item_text, query_text),
+    )
+
+
+def _bucket_recall_memories(
+    memories: List[Dict[str, Any]], query_text: str
+) -> Dict[str, List[Dict[str, Any]]]:
+    direct: List[Dict[str, Any]] = []
+    contextual: List[Dict[str, Any]] = []
+    expansive: List[Dict[str, Any]] = []
+    suppressed: List[Dict[str, Any]] = []
+    for raw_item in memories:
+        item = apply_memory_governance(raw_item)
+        disclosure_policy = str(item.get("disclosure_policy") or "")
+        relevance = _memory_relevance(item, query_text)
+        if disclosure_policy == DISCLOSURE_INTERNAL_ONLY:
+            suppressed.append(item)
+            continue
+        if relevance >= 0.55:
+            direct.append(item)
+        elif relevance >= 0.4:
+            contextual.append(item)
+        else:
+            expansive.append(item)
+    return {
+        "direct": direct,
+        "contextual": contextual,
+        "expansive": expansive,
+        "suppressed": suppressed,
+    }
+
+
+def _build_followup_hook_entries(
+    *,
+    query_text: str,
+    recent_contexts: List[Dict[str, Any]],
+    direct_memories: Optional[List[Dict[str, Any]]] = None,
+    related_entities: Optional[List[Dict[str, Any]]] = None,
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
+    hooks: List[Dict[str, Any]] = []
+    for item in recent_contexts:
+        topic = str(item.get("topic") or "").strip()
+        summary = str(item.get("summary") or "").strip()
+        if not topic or not summary:
+            continue
+        hook = {
+            "kind": "recent_topic",
+            "visibility": "safe",
+            "text": f"recent topic: {topic} -> {summary[:80]}",
+            "topic": topic,
+            "summary": summary,
+            "use_priority": 40,
+            "confidence_band": "medium",
+        }
+        if hook["text"] not in {item["text"] for item in hooks}:
+            hooks.append(hook)
+        if len(hooks) >= limit:
+            break
+    for item in direct_memories or []:
+        memory_id = item.get("id")
+        title = str(item.get("title") or "").strip()
+        attribute_key = str(item.get("attribute_key") or "").strip()
+        confidence = float(item.get("confidence", 0.0) or 0.0)
+        if not title:
+            continue
+        is_preference_hint = (
+            attribute_key.startswith("favorite_")
+            or "喜欢" in title
+            or "偏好" in title
+            or "最喜欢" in str(item.get("content") or "")
+        )
+        integration_hint = "gentle_personalization" if is_preference_hint else "answer_normally"
+        if confidence >= 0.9:
+            confidence_band = "high"
+        elif confidence >= 0.7:
+            confidence_band = "medium"
+        else:
+            confidence_band = "low"
+        if is_preference_hint:
+            use_priority = 90 if confidence_band == "high" else 80 if confidence_band == "medium" else 70
+        else:
+            use_priority = 60 if confidence_band in {"high", "medium"} else 50
+        text = (
+            f"记忆提示：{title}；"
+            + ("可直接作为轻量个性化信息融合。" if integration_hint == "gentle_personalization" else "仅在确实相关时再自然带出。")
+        )
+        hook = {
+            "kind": "preference_hint" if is_preference_hint else "fact_hint",
+            "visibility": "safe",
+            "text": text,
+            "memory_id": int(memory_id) if memory_id is not None else None,
+            "memory_title": title,
+            "attribute_key": attribute_key or None,
+            "integration_hint": integration_hint,
+            "use_priority": use_priority,
+            "confidence_band": confidence_band,
+        }
+        if hook["text"] not in {entry["text"] for entry in hooks}:
+            hooks.append(hook)
+        if len(hooks) >= limit:
+            break
+    for entity in related_entities or []:
+        subject_key = str(entity.get("subject_key") or "").strip()
+        display_name = str(entity.get("display_name") or "").strip()
+        reasons = [str(reason).strip() for reason in list(entity.get("relationship_reasons") or []) if str(reason).strip()]
+        integration_hint = str(entity.get("suggested_integration_hint") or "").strip()
+        if not subject_key or not reasons:
+            continue
+        label = display_name or subject_key
+        visibility = "internal_only" if integration_hint == "internal_reference_only" else "safe"
+        confidence_band = "high" if len(reasons) >= 1 else "medium"
+        if integration_hint == "internal_reference_only":
+            use_priority = 85
+        elif integration_hint == "mention_with_reason":
+            use_priority = 75
+        elif integration_hint == "gentle_reference":
+            use_priority = 65
+        else:
+            use_priority = 55
+        disclosure_tail = "仅供内部参考。" if visibility == "internal_only" else "可按语气自然融合。"
+        hook = {
+            "kind": "entity_relation",
+            "visibility": visibility,
+            "text": (
+                f"内部线索：{label}（{subject_key}）与当前话题相关，"
+                f"关系点是 {', '.join(reasons)}；{disclosure_tail}"
+            ),
+            "subject_key": subject_key,
+            "display_name": label,
+            "reasons": reasons,
+            "integration_hint": integration_hint or "answer_normally",
+            "use_priority": use_priority,
+            "confidence_band": confidence_band,
+        }
+        if hook["text"] not in {item["text"] for item in hooks}:
+            hooks.append(hook)
+        if len(hooks) >= limit:
+            break
+    return sorted(
+        hooks,
+        key=lambda item: (
+            -int(item.get("use_priority", 0) or 0),
+            str(item.get("kind") or ""),
+            str(item.get("text") or ""),
+        ),
+    )
+
+
+def _build_followup_hooks(
+    *,
+    query_text: str,
+    recent_contexts: List[Dict[str, Any]],
+    direct_memories: Optional[List[Dict[str, Any]]] = None,
+    related_entities: Optional[List[Dict[str, Any]]] = None,
+    limit: int = 3,
+) -> List[str]:
+    entries = _build_followup_hook_entries(
+        query_text=query_text,
+        recent_contexts=recent_contexts,
+        direct_memories=direct_memories,
+        related_entities=related_entities,
+        limit=limit,
+    )
+    return [str(item.get("text") or "") for item in entries if str(item.get("text") or "").strip()]
+
+
+def _integration_hint_for_entity(
+    *, reasons: List[str], disclosure_policy: str
+) -> str:
+    if disclosure_policy == DISCLOSURE_INTERNAL_ONLY:
+        return "internal_reference_only"
+    if any(reason in {"responsible_for", "collaborates_with", "participates_in"} for reason in reasons):
+        return "mention_with_reason"
+    if reasons:
+        return "gentle_reference"
+    return "answer_normally"
+
+
+def _enrich_related_entities(
+    *,
+    entities: List[Dict[str, Any]],
+    memories: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not entities:
+        return []
+    enriched: List[Dict[str, Any]] = []
+    for entity in entities:
+        subject_key = str(entity.get("subject_key") or "").strip()
+        entity_memories = [
+            item
+            for item in memories
+            if str(item.get("subject_key") or "").strip() == subject_key
+        ]
+        relationship_reasons: List[str] = []
+        for item in entity_memories:
+            reason = infer_edge_relation_type(item)
+            if reason and reason not in relationship_reasons:
+                relationship_reasons.append(reason)
+        enriched.append(
+            {
+                **entity,
+                "relationship_reasons": relationship_reasons,
+                "top_relationship_reason": relationship_reasons[0] if relationship_reasons else None,
+                "suggested_integration_hint": _integration_hint_for_entity(
+                    reasons=relationship_reasons,
+                    disclosure_policy=str(entity.get("disclosure_policy") or "normal"),
+                ),
+            }
+        )
+    return enriched
+
+
+def _build_internal_strategy_summary(
+    *,
+    suggested_integration_style: str,
+    decision_reasons: List[str],
+    suggested_followup_hooks: List[str],
+) -> str:
+    parts = [f"style={suggested_integration_style}"]
+    if decision_reasons:
+        parts.append("reasons=" + ", ".join(decision_reasons[:3]))
+    if suggested_followup_hooks:
+        summary_hooks = list(suggested_followup_hooks[:1])
+        internal_hook = next((hook for hook in suggested_followup_hooks if "仅供内部参考" in str(hook)), None)
+        if internal_hook and internal_hook not in summary_hooks:
+            summary_hooks.append(str(internal_hook))
+        for hook in suggested_followup_hooks[1:]:
+            if len(summary_hooks) >= 2:
+                break
+            if hook not in summary_hooks:
+                summary_hooks.append(str(hook))
+        parts.append("hooks=" + " | ".join(summary_hooks))
+    return "; ".join(parts)
+
+
+def _partition_followup_hooks(hooks: List[str]) -> tuple[List[str], List[str]]:
+    safe_hooks: List[str] = []
+    internal_only_hooks: List[str] = []
+    for hook in hooks:
+        if "仅供内部参考" in str(hook):
+            internal_only_hooks.append(hook)
+        else:
+            safe_hooks.append(hook)
+    return safe_hooks, internal_only_hooks
+
+
+def _select_recommended_primary_hook(hook_entries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not hook_entries:
+        return None
+    safe_entries = [entry for entry in hook_entries if str(entry.get("visibility") or "") == "safe"]
+    if safe_entries:
+        return dict(safe_entries[0])
+    return dict(hook_entries[0])
+
+
+def _select_recommended_secondary_hooks(
+    hook_entries: List[Dict[str, Any]],
+    primary_hook: Optional[Dict[str, Any]],
+    *,
+    limit: int = 2,
+) -> List[Dict[str, Any]]:
+    if not hook_entries or limit <= 0:
+        return []
+    selected: List[Dict[str, Any]] = []
+    primary_text = str((primary_hook or {}).get("text") or "")
+    safe_entries = [entry for entry in hook_entries if str(entry.get("visibility") or "") == "safe"]
+    internal_entries = [entry for entry in hook_entries if str(entry.get("visibility") or "") == "internal_only"]
+    for entry in safe_entries + internal_entries:
+        if len(selected) >= limit:
+            break
+        if primary_text and str(entry.get("text") or "") == primary_text:
+            continue
+        selected.append(dict(entry))
+    return selected
+
+
+def _decide_recall(
+    *,
+    user_message: str,
+    draft_response: Optional[str],
+    topic_hint: Optional[str],
+    memories: List[Dict[str, Any]],
+    contexts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    query_text = _normalized_text([user_message, draft_response, topic_hint])
+    top_memory = memories[0] if memories else None
+    top_context = contexts[0] if contexts else None
+
+    top_memory_strength = _memory_strength(top_memory or {})
+    top_memory_relevance = _memory_relevance(top_memory or {}, query_text)
+    top_context_strength = _context_strength(top_context or {})
+    query_has_personal_signal = _has_pattern(query_text, PERSONAL_QUERY_PATTERNS)
+
+    memory_signal_text = _normalized_text(
+        [
+            (top_memory or {}).get("title"),
+            (top_memory or {}).get("content"),
+            (top_memory or {}).get("summary"),
+            (top_memory or {}).get("subject_key"),
+            (top_memory or {}).get("attribute_key"),
+            (top_memory or {}).get("value_text"),
+            (top_memory or {}).get("tags", []),
+        ]
+    )
+    memory_has_personal_signal = _has_pattern(memory_signal_text, PERSONAL_MEMORY_PATTERNS)
+
+    score = 0.0
+    reasons: List[str] = []
+
+    if top_memory_strength >= 0.85:
+        score += 0.45
+        reasons.append("high-confidence memory")
+    elif top_memory_strength >= 0.65:
+        score += 0.25
+        reasons.append("usable memory match")
+
+    if top_memory and top_memory.get("is_explicit"):
+        score += 0.15
+        reasons.append("explicit memory")
+
+    if top_memory_relevance >= 0.55:
+        score += 0.25
+        reasons.append("strong semantic relevance")
+    elif top_memory_relevance >= 0.45:
+        score += 0.12
+        reasons.append("moderate semantic relevance")
+
+    if memory_has_personal_signal:
+        score += 0.2
+        reasons.append("personal link in retrieved memory")
+
+    if query_has_personal_signal:
+        score += 0.15
+        reasons.append("personalization opportunity in current turn")
+
+    if topic_hint and top_context_strength >= 0.4:
+        score += 0.15
+        reasons.append("ongoing topic continuity")
+
+    if not query_has_personal_signal and top_memory_relevance < 0.45:
+        score = min(score, 0.3)
+
+    should_recall = score >= 0.45 and bool(memories or contexts)
+    if not should_recall:
+        reasons = ["no strong personalization signal"]
+        style = "answer_normally"
+    elif query_has_personal_signal and any(
+        token in _normalized_text(user_message) for token in ("之前", "上次", "记得", "最喜欢")
+    ):
+        style = "direct_personalization"
+    else:
+        style = "gentle_personalization"
+
+    return {
+        "should_recall": should_recall,
+        "decision_score": round(min(score, 1.0), 4),
+        "decision_reasons": reasons,
+        "suggested_integration_style": style,
+    }
+
+
+def _build_recall_result(
+    *,
+    user_message: str,
+    draft_response: Optional[str] = None,
+    topic_hint: Optional[str] = None,
+    user_code: Optional[str] = None,
+    memory_limit: int = 3,
+    context_limit: int = 3,
+    recent_context_limit: int = 2,
+    recent_context_hours: int = 168,
+) -> RecallResult:
+    query_text = _compose_recall_query(
+        user_message=user_message, draft_response=draft_response, topic_hint=topic_hint
+    )
+    memories = search_memories(
+        query=query_text,
+        user_code=user_code,
+        include_archived=False,
+        limit=memory_limit,
+    )
+    contexts = search_context_snapshots(
+        query=query_text,
+        user_code=user_code,
+        snapshot_level=None,
+        session_key=None,
+        limit=context_limit,
+    )
+    try:
+        recent_contexts = search_recent_context_summaries(
+            user_code=user_code,
+            session_key=None,
+            query="",
+            snapshot_levels=[SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC],
+            recent_hours=recent_context_hours,
+            limit=recent_context_limit,
+        )
+    except Exception:
+        recent_contexts = []
+    memory_groups = _bucket_recall_memories(memories, query_text)
+    visible_memories = memory_groups["direct"] + memory_groups["contextual"]
+    related_entities = summarize_entities_from_memories(
+        visible_memories + memory_groups["suppressed"] + memory_groups["expansive"],
+        limit=5,
+    )
+    related_entities = _enrich_related_entities(
+        entities=related_entities,
+        memories=visible_memories + memory_groups["suppressed"] + memory_groups["expansive"],
+    )
+    decision = _decide_recall(
+        user_message=user_message,
+        draft_response=draft_response,
+        topic_hint=topic_hint,
+        memories=visible_memories,
+        contexts=contexts,
+    )
+    if visible_memories:
+        try:
+            mark_memories_recalled(
+                [int(item["id"]) for item in visible_memories if item.get("id")],
+                user_code,
+            )
+        except Exception:
+            pass
+    hook_entries = _build_followup_hook_entries(
+        query_text=query_text,
+        recent_contexts=recent_contexts,
+        direct_memories=memory_groups["direct"],
+        related_entities=related_entities,
+    )
+    followup_hooks = [str(item.get("text") or "") for item in hook_entries if str(item.get("text") or "").strip()]
+    disclosure_warnings = [
+        f"{item.get('title')}: {item.get('disclosure_policy')}"
+        for item in memory_groups["suppressed"]
+        if item.get("title")
+    ]
+    safe_hooks, internal_only_hooks = _partition_followup_hooks(list(followup_hooks))
+    recommended_primary_hook = _select_recommended_primary_hook(list(hook_entries))
+    recommended_secondary_hooks = _select_recommended_secondary_hooks(
+        list(hook_entries),
+        recommended_primary_hook,
+        limit=2,
+    )
+    internal_strategy = {
+        "style": str(decision["suggested_integration_style"]),
+        "should_recall": bool(decision["should_recall"]),
+        "reasons": list(decision["decision_reasons"]),
+        "followup_hooks": list(followup_hooks),
+        "hook_entries": list(hook_entries),
+        "recommended_primary_hook": recommended_primary_hook,
+        "recommended_secondary_hooks": recommended_secondary_hooks,
+        "safe_hooks": safe_hooks,
+        "internal_only_hooks": internal_only_hooks,
+        "disclosure_warnings": list(disclosure_warnings),
+    }
+    internal_strategy_summary = _build_internal_strategy_summary(
+        suggested_integration_style=str(decision["suggested_integration_style"]),
+        decision_reasons=list(decision["decision_reasons"]),
+        suggested_followup_hooks=followup_hooks,
+    )
+    return RecallResult(
+        query_text=query_text,
+        memories=visible_memories,
+        contexts=contexts,
+        recent_contexts=recent_contexts,
+        related_entities=related_entities,
+        direct_memories=memory_groups["direct"],
+        contextual_memories=memory_groups["contextual"],
+        expansive_memories=memory_groups["expansive"],
+        suppressed_memories=memory_groups["suppressed"],
+        memory_titles=[str(item.get("title") or "") for item in visible_memories if item.get("title")],
+        context_topics=[str(item.get("topic") or "") for item in contexts if item.get("topic")],
+        recent_context_topics=[str(item.get("topic") or "") for item in recent_contexts if item.get("topic")],
+        memory_count=len(visible_memories),
+        context_count=len(contexts),
+        recent_context_count=len(recent_contexts),
+        related_entity_count=len(related_entities),
+        direct_memory_count=len(memory_groups["direct"]),
+        contextual_memory_count=len(memory_groups["contextual"]),
+        expansive_memory_count=len(memory_groups["expansive"]),
+        suppressed_memory_count=len(memory_groups["suppressed"]),
+        should_recall=bool(decision["should_recall"]),
+        decision_score=float(decision["decision_score"]),
+        decision_reasons=list(decision["decision_reasons"]),
+        suggested_integration_style=str(decision["suggested_integration_style"]),
+        suggested_followup_hooks=followup_hooks,
+        internal_strategy=internal_strategy,
+        internal_strategy_summary=internal_strategy_summary,
+        disclosure_warnings=disclosure_warnings,
+    )
+
+
+def _execute_capture_turn(
+    *,
+    user_text: str,
+    assistant_text: str = "",
+    session_key: str = DEFAULT_SESSION_KEY,
+    user_code: Optional[str] = None,
+    topic_hint: Optional[str] = None,
+    source_ref: Optional[str] = None,
+    consolidate: bool = True,
+    sync_context: bool = True,
+) -> CaptureTurnResult:
+    capture = run_capture_cycle(
+        user_text=user_text,
+        assistant_text=assistant_text,
+        user_code=user_code,
+        session_key=session_key,
+        source_ref=source_ref,
+        consolidate=consolidate,
+    )
+    context = None
+    if sync_context:
+        context = sync_session_context(
+            session_key=session_key,
+            turns=None,
+            user_code=user_code,
+            topic_hint=topic_hint,
+            source_ref=source_ref,
+            extract_memory=False,
+        )
+    return CaptureTurnResult(capture=capture, context=context)
+
+
+def create_server(
+    *,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    streamable_http_path: Optional[str] = None,
+) -> FastMCP:
+    server = FastMCP(
+        name="personal-memory",
+        instructions=(
+            "Use these tools to store durable personal memory, sync context, and recall "
+            "relevant memories before answering when it improves personalization or continuity."
+        ),
+        host=host or _service_host(),
+        port=port or _service_port(),
+        streamable_http_path=streamable_http_path or "/mcp",
+    )
+
+    @server.tool(name="search_memories", structured_output=True)
+    def search_memories_tool(
+        query: str = "",
+        user_code: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        include_archived: bool = False,
+        min_importance: Optional[int] = None,
+        min_confidence: Optional[float] = None,
+        is_explicit: Optional[bool] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
+        valid_at: Optional[str] = None,
+        limit: int = 10,
+    ) -> ItemListResult:
+        items = search_memories(
+            query=query,
+            user_code=user_code,
+            memory_type=memory_type,
+            tags=list(tags or []),
+            include_archived=include_archived,
+            min_importance=min_importance,
+            min_confidence=min_confidence,
+            is_explicit=is_explicit,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
+            valid_at=valid_at,
+            limit=limit,
+        )
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="search_memory_window", structured_output=True)
+    def search_memory_window_tool(
+        time_field: MemoryWindowField,
+        start_at: Optional[str] = None,
+        end_at: Optional[str] = None,
+        query: str = "",
+        user_code: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        include_archived: bool = False,
+        limit: int = 10,
+    ) -> ItemListResult:
+        items = search_memories_by_time_range(
+            user_code=user_code,
+            time_field=time_field,
+            start_at=start_at,
+            end_at=end_at,
+            query=query,
+            memory_type=memory_type,
+            tags=list(tags or []),
+            include_archived=include_archived,
+            limit=limit,
+        )
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="add_memory", structured_output=True)
+    def add_memory_tool(
+        title: str,
+        content: str,
+        id: Optional[int] = None,
+        user_code: Optional[str] = None,
+        memory_type: str = "fact",
+        summary: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        source_type: str = SOURCE_MANUAL,
+        source_ref: Optional[str] = None,
+        confidence: float = 0.7,
+        importance: int = 5,
+        status: str = STATUS_ACTIVE,
+        is_explicit: bool = False,
+        valid_from: Optional[str] = None,
+        valid_to: Optional[str] = None,
+        subject_key: Optional[str] = None,
+        related_subject_key: Optional[str] = None,
+        attribute_key: Optional[str] = None,
+        value_text: Optional[str] = None,
+        conflict_scope: Optional[str] = None,
+    ) -> MemoryMutationResult:
+        memory = upsert_memory(
+            {
+                "id": id,
+                "user_code": user_code,
+                "memory_type": memory_type,
+                "title": title,
+                "content": content,
+                "summary": summary,
+                "tags": list(tags or []),
+                "source_type": source_type,
+                "source_ref": source_ref,
+                "confidence": confidence,
+                "importance": importance,
+                "status": status,
+                "is_explicit": is_explicit,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
+                "subject_key": subject_key,
+                "related_subject_key": related_subject_key,
+                "attribute_key": attribute_key,
+                "value_text": value_text,
+                "conflict_scope": conflict_scope,
+            }
+        )
+        return MemoryMutationResult(memory=memory)
+
+    @server.tool(name="delete_memory", structured_output=True)
+    def delete_memory_tool(
+        id: int, user_code: Optional[str] = None, mode: str = "archive"
+    ) -> MemoryMutationResult:
+        if mode == "archive":
+            memory = archive_memory(id, user_code)
+        elif mode == "delete":
+            memory = delete_memory_row(id, user_code)
+        else:
+            raise ValueError("mode must be 'archive' or 'delete'")
+        if not memory:
+            raise ValueError("memory not found")
+        return MemoryMutationResult(memory=memory)
+
+    @server.tool(name="capture_turn", structured_output=True)
+    def capture_turn_tool(
+        user_text: str,
+        assistant_text: str = "",
+        session_key: str = DEFAULT_SESSION_KEY,
+        user_code: Optional[str] = None,
+        topic_hint: Optional[str] = None,
+        source_ref: Optional[str] = None,
+        consolidate: bool = True,
+        sync_context: bool = True,
+    ) -> CaptureTurnResult:
+        return _execute_capture_turn(
+            user_text=user_text,
+            assistant_text=assistant_text,
+            session_key=session_key,
+            user_code=user_code,
+            topic_hint=topic_hint,
+            source_ref=source_ref,
+            consolidate=consolidate,
+            sync_context=sync_context,
+        )
+
+    @server.tool(name="add_context", structured_output=True)
+    def add_context_tool(
+        turns: list[dict],
+        session_key: str = DEFAULT_SESSION_KEY,
+        user_code: Optional[str] = None,
+        topic_hint: Optional[str] = None,
+        source_ref: Optional[str] = None,
+        extract_memory: bool = False,
+    ) -> ContextMutationResult:
+        context = sync_session_context(
+            session_key=session_key,
+            turns=turns,
+            user_code=user_code,
+            topic_hint=topic_hint,
+            source_ref=source_ref,
+            extract_memory=extract_memory,
+        )
+        return ContextMutationResult(context=context)
+
+    @server.tool(name="search_recent_dialogue_summaries", structured_output=True)
+    def search_recent_dialogue_summaries_tool(
+        recent_hours: int = 168,
+        query: str = "",
+        user_code: Optional[str] = None,
+        session_key: Optional[str] = None,
+        snapshot_levels: Optional[list[str]] = None,
+        limit: int = 10,
+    ) -> ItemListResult:
+        items = search_recent_context_summaries(
+            user_code=user_code,
+            session_key=session_key,
+            query=query,
+            snapshot_levels=list(snapshot_levels or [SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC]),
+            recent_hours=recent_hours,
+            limit=limit,
+        )
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="search_entities", structured_output=True)
+    def search_entities_tool(
+        query: str = "",
+        user_code: Optional[str] = None,
+        subject_key: Optional[str] = None,
+        include_archived: bool = False,
+        limit: int = 10,
+    ) -> ItemListResult:
+        items = search_entities(
+            query=query,
+            user_code=user_code,
+            subject_key=subject_key,
+            include_archived=include_archived,
+            limit=limit,
+        )
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="search_entity_relationships", structured_output=True)
+    def search_entity_relationships_tool(
+        query: str = "",
+        user_code: Optional[str] = None,
+        subject_key: Optional[str] = None,
+        include_archived: bool = False,
+        limit: int = 10,
+    ) -> ItemListResult:
+        items = search_entity_relationships(
+            query=query,
+            user_code=user_code,
+            subject_key=subject_key,
+            include_archived=include_archived,
+            limit=limit,
+        )
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="maintain_entity_graph", structured_output=True)
+    def maintain_entity_graph_tool(user_code: Optional[str] = None) -> ItemListResult:
+        result = rebuild_entity_graph(user_code=user_code)
+        subject_keys = [{"subject_key": value} for value in list(result.get("subject_keys") or [])]
+        return ItemListResult(items=subject_keys, count=int(result.get("profile_count") or 0))
+
+    @server.tool(name="search_context", structured_output=True)
+    def search_context_tool(
+        query: str = "",
+        user_code: Optional[str] = None,
+        session_key: Optional[str] = None,
+        snapshot_level: Optional[str] = None,
+        limit: int = 10,
+    ) -> ItemListResult:
+        items = search_context_snapshots(
+            query=query,
+            user_code=user_code,
+            session_key=session_key,
+            snapshot_level=snapshot_level,
+            limit=limit,
+        )
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="list_domain_values", structured_output=True)
+    def list_domain_values_tool(
+        domain_name: str,
+        include_archived: bool = False,
+    ) -> ItemListResult:
+        items = list_domain_values(domain_name, include_archived=include_archived)
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="search_domain_candidates", structured_output=True)
+    def search_domain_candidates_tool(
+        domain_name: Optional[str] = None,
+        status: Optional[str] = "pending",
+        limit: int = 20,
+    ) -> ItemListResult:
+        items = list_domain_candidates(domain_name, status=status, limit=limit)
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="approve_domain_candidate", structured_output=True)
+    def approve_domain_candidate_tool(
+        candidate_id: int,
+        canonical_value_key: Optional[str] = None,
+    ) -> DomainMutationResult:
+        if canonical_value_key:
+            result = approve_domain_candidate(
+                candidate_id,
+                canonical_value_key=canonical_value_key,
+            )
+        else:
+            result = approve_domain_candidate(candidate_id)
+        return DomainMutationResult(candidate=result["candidate"], value=result.get("value"))
+
+    @server.tool(name="reject_domain_candidate", structured_output=True)
+    def reject_domain_candidate_tool(
+        candidate_id: int,
+        reason: Optional[str] = None,
+    ) -> DomainMutationResult:
+        result = reject_domain_candidate(candidate_id, reason=reason)
+        return DomainMutationResult(candidate=result["candidate"], value=result.get("value"))
+
+    @server.tool(name="merge_domain_alias", structured_output=True)
+    def merge_domain_alias_tool(
+        domain_name: str,
+        alias_key: str,
+        canonical_value_key: str,
+        candidate_id: Optional[int] = None,
+    ) -> AliasMutationResult:
+        result = merge_domain_alias(
+            domain_name=domain_name,
+            alias_key=alias_key,
+            canonical_value_key=canonical_value_key,
+            candidate_id=candidate_id,
+        )
+        return AliasMutationResult(
+            alias=result["alias"],
+            candidate=result.get("candidate"),
+            value=result.get("value"),
+        )
+
+    @server.tool(name="maintain_memory_store", structured_output=True)
+    def maintain_memory_store_tool(
+        user_code: Optional[str] = None,
+        limit: int = 200,
+        dry_run: bool = False,
+        include_archived: bool = False,
+    ) -> MaintenanceResult:
+        result = maintain_memory_store(
+            user_code=user_code,
+            limit=limit,
+            dry_run=dry_run,
+            include_archived=include_archived,
+        )
+        return MaintenanceResult(**result)
+
+    @server.tool(name="recall_for_response", structured_output=True)
+    def recall_for_response_tool(
+        user_message: str,
+        draft_response: Optional[str] = None,
+        topic_hint: Optional[str] = None,
+        user_code: Optional[str] = None,
+        memory_limit: int = 3,
+        context_limit: int = 3,
+        recent_context_limit: int = 2,
+        recent_context_hours: int = 168,
+    ) -> RecallResult:
+        return _build_recall_result(
+            user_message=user_message,
+            draft_response=draft_response,
+            topic_hint=topic_hint,
+            user_code=user_code,
+            memory_limit=memory_limit,
+            context_limit=context_limit,
+            recent_context_limit=recent_context_limit,
+            recent_context_hours=recent_context_hours,
+        )
+
+    @server.tool(name="orchestrate_turn_memory", structured_output=True)
+    def orchestrate_turn_memory_tool(
+        user_message: str,
+        draft_response: Optional[str] = None,
+        assistant_text: str = "",
+        topic_hint: Optional[str] = None,
+        session_key: str = DEFAULT_SESSION_KEY,
+        user_code: Optional[str] = None,
+        source_ref: Optional[str] = None,
+        memory_limit: int = 3,
+        context_limit: int = 3,
+        recent_context_limit: int = 2,
+        recent_context_hours: int = 168,
+        consolidate: bool = True,
+        sync_context: bool = True,
+        capture_after_response: bool = False,
+    ) -> TurnOrchestrationResult:
+        recall = _build_recall_result(
+            user_message=user_message,
+            draft_response=draft_response,
+            topic_hint=topic_hint,
+            user_code=user_code,
+            memory_limit=memory_limit,
+            context_limit=context_limit,
+            recent_context_limit=recent_context_limit,
+            recent_context_hours=recent_context_hours,
+        )
+        should_capture = bool(user_message.strip() or assistant_text.strip())
+        capture_plan = {
+            "tool": "capture_turn",
+            "user_text": user_message,
+            "assistant_text": assistant_text,
+            "session_key": session_key,
+            "topic_hint": topic_hint,
+            "source_ref": source_ref,
+            "consolidate": consolidate,
+            "sync_context": sync_context,
+            "should_capture": should_capture,
+        }
+        executed_capture = None
+        if should_capture and capture_after_response and assistant_text.strip():
+            executed_capture = _execute_capture_turn(
+                user_text=user_message,
+                assistant_text=assistant_text,
+                session_key=session_key,
+                user_code=user_code,
+                topic_hint=topic_hint,
+                source_ref=source_ref,
+                consolidate=consolidate,
+                sync_context=sync_context,
+            ).model_dump()
+        return TurnOrchestrationResult(
+            recall=recall.model_dump(),
+            should_capture=should_capture,
+            capture_plan=capture_plan,
+            executed_capture=executed_capture,
+            recommended_sequence=["recall_for_response", "answer_user", "capture_turn"],
+        )
+
+    return server
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--transport", choices=["stdio", "streamable-http", "sse"], default="stdio")
+    parser.add_argument("--host", default=_service_host())
+    parser.add_argument("--port", type=int, default=_service_port())
+    parser.add_argument("--path", default="/mcp")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    server = create_server(host=args.host, port=args.port, streamable_http_path=args.path)
+    server.run(transport=args.transport)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

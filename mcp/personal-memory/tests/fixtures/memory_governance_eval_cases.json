@@ -1,0 +1,49 @@
+[
+  {
+    "name": "third_party_health_is_internal_only",
+    "memory": {
+      "title": "朋友小王高血压",
+      "content": "你的朋友小王有高血压",
+      "subject_key": "friend_xiaowang",
+      "attribute_key": "health_condition",
+      "tags": ["health", "friend"],
+      "confidence": 0.9,
+      "is_explicit": true,
+      "recall_count": 0
+    },
+    "expected": {
+      "sensitivity_level": "restricted",
+      "disclosure_policy": "internal_only"
+    }
+  },
+  {
+    "name": "explicit_preference_becomes_stable",
+    "memory": {
+      "title": "favorite_drink: 黑咖啡",
+      "content": "我最喜欢黑咖啡",
+      "attribute_key": "favorite_drink",
+      "tags": ["preference"],
+      "confidence": 0.95,
+      "is_explicit": true,
+      "recall_count": 2
+    },
+    "expected": {
+      "lifecycle_state": "stable"
+    }
+  },
+  {
+    "name": "old_unrecalled_context_turns_cold",
+    "memory": {
+      "title": "沉淀上下文: 旧项目上下文",
+      "content": "之前讨论过一个旧项目方向",
+      "memory_type": "context",
+      "confidence": 0.55,
+      "is_explicit": false,
+      "recall_count": 0,
+      "updated_at_days_ago": 45
+    },
+    "expected": {
+      "lifecycle_state": "cold"
+    }
+  }
+]

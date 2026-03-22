@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+
+class ExtractionStrategyTests(unittest.TestCase):
+    def test_explicit_remember_command_can_auto_persist(self) -> None:
+        from service.extraction import extract_candidates, should_auto_persist
+
+        candidates = extract_candidates("记住我最喜欢黑咖啡")
+
+        self.assertEqual(1, len(candidates))
+        candidate = candidates[0]
+        self.assertTrue(should_auto_persist(candidate))
+        self.assertTrue(candidate["is_explicit"])
+
+    def test_non_explicit_self_description_does_not_use_heuristic_capture(self) -> None:
+        from service.extraction import extract_candidates, should_auto_persist
+
+        candidates = extract_candidates("我是一个很感性的人")
+
+        self.assertEqual([], candidates)
+
+    def test_non_explicit_trait_statement_does_not_use_heuristic_capture(self) -> None:
+        from service.extraction import extract_candidates
+
+        candidates = extract_candidates("我很感性")
+
+        self.assertEqual([], candidates)
+
+
+class AnalyzerFallbackStrategyTests(unittest.TestCase):
+    def test_analysis_prompt_mentions_related_subject_guidance(self) -> None:
+        from service.analyzer import _analysis_prompt
+
+        prompt = _analysis_prompt(
+            user_text="我的朋友小王在 memory mcp 项目里负责后端。",
+            assistant_text="这说明小王和项目之间有明确关系。",
+            recent_memories=[],
+        )
+
+        self.assertIn("related_subject", prompt)
+        self.assertIn("双实体", prompt)
+        self.assertIn("我的朋友小王在 memory mcp 项目里负责后端", prompt)
+
+    def test_build_analysis_item_preserves_related_subject(self) -> None:
+        from service.analyzer import build_analysis_item
+
+        item = build_analysis_item(
+            category="relationship",
+            subject="friend_xiaowang",
+            related_subject="project_memory_mcp",
+            attribute="relationship_fact",
+            value="负责后端",
+            claim="小王在 memory mcp 项目里负责后端",
+            rationale="明确描述了实体之间的关系",
+            evidence_type="observed",
+            time_scope="mid_term",
+            action="long_term",
+            confidence=0.7,
+        )
+
+        self.assertEqual("project_memory_mcp", item["related_subject"])
+
+    @patch("service.analyzer.get_settings", return_value={"memory_user": "LYB"})
+    @patch("service.analyzer.analyzer_enabled", return_value=False)
+    def test_identity_self_description_stays_conservative_without_analyzer(
+        self, _analyzer_enabled_mock, _get_settings_mock
+    ) -> None:
+        from service.analyzer import analyze_turn
+
+        items = analyze_turn(user_text="我是一个很感性的人")
+
+        self.assertEqual(1, len(items))
+        item = items[0]
+        self.assertEqual("ephemeral", item["attribute"])
+        self.assertEqual("ignore", item["action"])
+        self.assertIn("conservative-fallback", item["tags"])
+
+    @patch("service.analyzer.get_settings", return_value={"memory_user": "LYB"})
+    @patch("service.analyzer.analyzer_enabled", return_value=False)
+    def test_simple_trait_statement_stays_conservative_without_analyzer(
+        self, _analyzer_enabled_mock, _get_settings_mock
+    ) -> None:
+        from service.analyzer import analyze_turn
+
+        items = analyze_turn(user_text="我很感性")
+
+        self.assertEqual(1, len(items))
+        item = items[0]
+        self.assertEqual("ephemeral", item["attribute"])
+        self.assertEqual("ignore", item["action"])
+        self.assertIn("conservative-fallback", item["tags"])
+
+    @patch("service.analyzer.get_settings", return_value={"memory_user": "LYB"})
+    @patch("service.analyzer.analyzer_enabled", return_value=False)
+    def test_short_term_focus_prefers_working_memory(
+        self, _analyzer_enabled_mock, _get_settings_mock
+    ) -> None:
+        from service.analyzer import analyze_turn
+
+        items = analyze_turn(user_text="这周先优先排查支付模块的超时问题")
+
+        self.assertEqual(1, len(items))
+        item = items[0]
+        self.assertEqual("current_focus", item["attribute"])
+        self.assertEqual("working_memory", item["action"])
+
+    @patch("service.analyzer.get_settings", return_value={"memory_user": "LYB"})
+    @patch("service.analyzer.analyzer_enabled", return_value=False)
+    def test_explicit_relationship_statement_extracts_related_subject_conservatively(
+        self, _analyzer_enabled_mock, _get_settings_mock
+    ) -> None:
+        from service.analyzer import analyze_turn
+
+        items = analyze_turn(user_text="我的朋友小王在 memory mcp 项目里负责后端。")
+
+        self.assertEqual(1, len(items))
+        item = items[0]
+        self.assertEqual("friend_小王", item["subject"])
+        self.assertEqual("project_memory_mcp", item["related_subject"])
+        self.assertEqual("relationship_fact", item["attribute"])
+        self.assertEqual("relationship", item["category"])
+        self.assertEqual("long_term", item["action"])
+        self.assertIn("entity-link", item["tags"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,838 @@
+from __future__ import annotations
+
+import asyncio
+import unittest
+from unittest.mock import patch
+
+
+class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        from service import mcp_server
+
+        self.mcp_server = mcp_server
+        self.server = mcp_server.create_server()
+
+    async def test_registers_expected_tools(self) -> None:
+        tools = await self.server.list_tools()
+        names = {tool.name for tool in tools}
+        self.assertEqual(
+            {
+                "search_memories",
+                "search_memory_window",
+                "add_memory",
+                "delete_memory",
+                "capture_turn",
+                "add_context",
+                "search_context",
+                "search_recent_dialogue_summaries",
+                "search_entities",
+                "search_entity_relationships",
+                "maintain_entity_graph",
+                "recall_for_response",
+                "list_domain_values",
+                "search_domain_candidates",
+                "approve_domain_candidate",
+                "reject_domain_candidate",
+                "merge_domain_alias",
+                "maintain_memory_store",
+                "orchestrate_turn_memory",
+            },
+            names,
+        )
+
+    @patch("service.mcp_server.list_domain_values")
+    async def test_list_domain_values_tool_delegates_to_registry(self, list_domain_values_mock) -> None:
+        list_domain_values_mock.return_value = [
+            {"domain_name": "memory_type", "value_key": "fact"},
+            {"domain_name": "memory_type", "value_key": "preference"},
+        ]
+
+        _, structured = await self.server.call_tool(
+            "list_domain_values",
+            {
+                "domain_name": "memory_type",
+            },
+        )
+
+        list_domain_values_mock.assert_called_once_with("memory_type", include_archived=False)
+        self.assertEqual(2, structured["count"])
+        self.assertEqual("fact", structured["items"][0]["value_key"])
+
+    @patch("service.mcp_server.approve_domain_candidate")
+    async def test_approve_domain_candidate_tool_delegates_to_registry(
+        self, approve_domain_candidate_mock
+    ) -> None:
+        approve_domain_candidate_mock.return_value = {
+            "candidate": {"id": 4, "status": "approved"},
+            "value": {"domain_name": "memory_type", "value_key": "friend_profile"},
+        }
+
+        _, structured = await self.server.call_tool(
+            "approve_domain_candidate",
+            {
+                "candidate_id": 4,
+            },
+        )
+
+        approve_domain_candidate_mock.assert_called_once_with(4)
+        self.assertTrue(structured["ok"])
+        self.assertEqual("friend_profile", structured["value"]["value_key"])
+
+    @patch("service.mcp_server.approve_domain_candidate")
+    async def test_approve_domain_candidate_tool_accepts_canonical_override(
+        self, approve_domain_candidate_mock
+    ) -> None:
+        approve_domain_candidate_mock.return_value = {
+            "candidate": {"id": 4, "status": "approved", "canonical_value_key": "relationship"},
+            "value": {"domain_name": "memory_type", "value_key": "relationship"},
+        }
+
+        _, structured = await self.server.call_tool(
+            "approve_domain_candidate",
+            {
+                "candidate_id": 4,
+                "canonical_value_key": "relationship",
+            },
+        )
+
+        approve_domain_candidate_mock.assert_called_once_with(4, canonical_value_key="relationship")
+        self.assertEqual("relationship", structured["value"]["value_key"])
+
+    @patch("service.mcp_server.reject_domain_candidate")
+    async def test_reject_domain_candidate_tool_delegates_to_registry(
+        self, reject_domain_candidate_mock
+    ) -> None:
+        reject_domain_candidate_mock.return_value = {
+            "candidate": {"id": 7, "status": "rejected"},
+            "value": None,
+        }
+
+        _, structured = await self.server.call_tool(
+            "reject_domain_candidate",
+            {
+                "candidate_id": 7,
+                "reason": "taxonomy too noisy",
+            },
+        )
+
+        reject_domain_candidate_mock.assert_called_once_with(7, reason="taxonomy too noisy")
+        self.assertTrue(structured["ok"])
+        self.assertEqual("rejected", structured["candidate"]["status"])
+
+    @patch("service.mcp_server.merge_domain_alias")
+    async def test_merge_domain_alias_tool_delegates_to_registry(self, merge_domain_alias_mock) -> None:
+        merge_domain_alias_mock.return_value = {
+            "alias": {
+                "domain_name": "memory_type",
+                "alias_key": "friend_profile",
+                "canonical_value_key": "relationship",
+            },
+            "candidate": {"id": 9, "status": "approved"},
+            "value": {"domain_name": "memory_type", "value_key": "relationship"},
+        }
+
+        _, structured = await self.server.call_tool(
+            "merge_domain_alias",
+            {
+                "domain_name": "memory_type",
+                "alias_key": "Friend Profile",
+                "canonical_value_key": "relationship",
+                "candidate_id": 9,
+            },
+        )
+
+        merge_domain_alias_mock.assert_called_once_with(
+            domain_name="memory_type",
+            alias_key="Friend Profile",
+            canonical_value_key="relationship",
+            candidate_id=9,
+        )
+        self.assertTrue(structured["ok"])
+        self.assertEqual("relationship", structured["alias"]["canonical_value_key"])
+
+    @patch("service.mcp_server.sync_session_context")
+    @patch("service.mcp_server.run_capture_cycle")
+    async def test_capture_turn_records_turn_and_updates_context(
+        self, run_capture_cycle_mock, sync_session_context_mock
+    ) -> None:
+        run_capture_cycle_mock.return_value = {
+            "event_count": 2,
+            "analysis_result_count": 1,
+            "persisted_count": 1,
+        }
+        sync_session_context_mock.return_value = {
+            "event_count": 2,
+            "segment_snapshot": {"id": 22, "topic": "饮食偏好"},
+            "topic_snapshot": {"id": 23, "topic": "饮食偏好"},
+            "global_topic_snapshot": {"id": 24, "topic": "饮食偏好"},
+            "memory_sync": None,
+        }
+
+        _, structured = await self.server.call_tool(
+            "capture_turn",
+            {
+                "user_text": "记住我最近开始每天骑车通勤。",
+                "assistant_text": "我记下来了，后面可以结合这个习惯来建议。",
+                "session_key": "life-2026-03",
+                "topic_hint": "通勤和运动",
+            },
+        )
+
+        run_capture_cycle_mock.assert_called_once_with(
+            user_text="记住我最近开始每天骑车通勤。",
+            assistant_text="我记下来了，后面可以结合这个习惯来建议。",
+            user_code=None,
+            session_key="life-2026-03",
+            source_ref=None,
+            consolidate=True,
+        )
+        sync_session_context_mock.assert_called_once_with(
+            session_key="life-2026-03",
+            turns=None,
+            user_code=None,
+            topic_hint="通勤和运动",
+            source_ref=None,
+            extract_memory=False,
+        )
+        self.assertTrue(structured["ok"])
+        self.assertEqual(1, structured["capture"]["persisted_count"])
+        self.assertEqual(22, structured["context"]["segment_snapshot"]["id"])
+
+    @patch("service.mcp_server.search_entities")
+    async def test_search_entities_tool_delegates_to_entity_summary(self, search_entities_mock) -> None:
+        search_entities_mock.return_value = [
+            {
+                "subject_key": "friend_xiaowang",
+                "display_name": "xiaowang",
+                "relation_type": "friend",
+                "memory_count": 2,
+            }
+        ]
+
+        _, structured = await self.server.call_tool(
+            "search_entities",
+            {
+                "query": "小王",
+                "limit": 5,
+            },
+        )
+
+        search_entities_mock.assert_called_once_with(
+            query="小王",
+            user_code=None,
+            subject_key=None,
+            include_archived=False,
+            limit=5,
+        )
+        self.assertEqual(1, structured["count"])
+        self.assertEqual("friend_xiaowang", structured["items"][0]["subject_key"])
+
+    @patch("service.mcp_server.search_entity_relationships")
+    async def test_search_entity_relationships_tool_delegates_to_graph(
+        self, search_entity_relationships_mock
+    ) -> None:
+        search_entity_relationships_mock.return_value = [
+            {
+                "source_subject_key": "user",
+                "target_subject_key": "friend_xiaowang",
+                "relation_type": "friend",
+                "evidence_count": 2,
+            }
+        ]
+
+        _, structured = await self.server.call_tool(
+            "search_entity_relationships",
+            {
+                "query": "小王",
+                "limit": 5,
+            },
+        )
+
+        search_entity_relationships_mock.assert_called_once_with(
+            query="小王",
+            user_code=None,
+            subject_key=None,
+            include_archived=False,
+            limit=5,
+        )
+        self.assertEqual(1, structured["count"])
+        self.assertEqual("friend_xiaowang", structured["items"][0]["target_subject_key"])
+
+    @patch("service.mcp_server.rebuild_entity_graph")
+    async def test_maintain_entity_graph_tool_delegates_to_rebuild(self, rebuild_entity_graph_mock) -> None:
+        rebuild_entity_graph_mock.return_value = {
+            "profile_count": 2,
+            "edge_count": 1,
+            "subject_keys": ["user", "friend_xiaowang"],
+        }
+
+        _, structured = await self.server.call_tool(
+            "maintain_entity_graph",
+            {
+                "user_code": "LYB",
+            },
+        )
+
+        rebuild_entity_graph_mock.assert_called_once_with(user_code="LYB")
+        self.assertEqual(2, structured["count"])
+        self.assertEqual("user", structured["items"][0]["subject_key"])
+
+    @patch("service.mcp_server.search_recent_context_summaries")
+    async def test_search_recent_dialogue_summaries_uses_time_window(self, recent_search_mock) -> None:
+        recent_search_mock.return_value = [
+            {"id": 31, "topic": "最近在看中医", "summary": "你最近在看一些调理血压的资料。"}
+        ]
+
+        _, structured = await self.server.call_tool(
+            "search_recent_dialogue_summaries",
+            {
+                "recent_hours": 72,
+                "snapshot_levels": ["segment", "topic"],
+                "limit": 5,
+            },
+        )
+
+        recent_search_mock.assert_called_once_with(
+            user_code=None,
+            session_key=None,
+            query="",
+            snapshot_levels=["segment", "topic"],
+            recent_hours=72,
+            limit=5,
+        )
+        self.assertEqual(1, structured["count"])
+        self.assertEqual("最近在看中医", structured["items"][0]["topic"])
+
+    @patch("service.mcp_server.upsert_memory")
+    async def test_add_memory_tool_delegates_to_storage(self, upsert_memory_mock) -> None:
+        upsert_memory_mock.return_value = {"id": 11, "title": "喜欢黑咖啡", "content": "我喜欢黑咖啡"}
+
+        _, structured = await self.server.call_tool(
+            "add_memory",
+            {
+                "memory_type": "preference",
+                "title": "喜欢黑咖啡",
+                "content": "我喜欢黑咖啡",
+                "tags": ["drink"],
+                "importance": 8,
+                "is_explicit": True,
+            },
+        )
+
+        upsert_memory_mock.assert_called_once_with(
+            {
+                "id": None,
+                "user_code": None,
+                "memory_type": "preference",
+                "title": "喜欢黑咖啡",
+                "content": "我喜欢黑咖啡",
+                "summary": None,
+                "tags": ["drink"],
+                "source_type": "manual",
+                "source_ref": None,
+                "confidence": 0.7,
+                "importance": 8,
+                "status": "active",
+                "is_explicit": True,
+                "valid_from": None,
+                "valid_to": None,
+                "subject_key": None,
+                "related_subject_key": None,
+                "attribute_key": None,
+                "value_text": None,
+                "conflict_scope": None,
+            }
+        )
+        self.assertTrue(structured["ok"])
+        self.assertEqual(11, structured["memory"]["id"])
+
+    @patch("service.mcp_server.search_memories_by_time_range")
+    async def test_search_memory_window_uses_requested_time_field(self, range_search_mock) -> None:
+        range_search_mock.return_value = [{"id": 7, "title": "最近提醒"}]
+
+        _, structured = await self.server.call_tool(
+            "search_memory_window",
+            {
+                "time_field": "updated_at",
+                "start_at": "2026-03-01T00:00:00",
+                "end_at": "2026-03-20T23:59:59",
+                "memory_type": "context",
+                "limit": 5,
+            },
+        )
+
+        range_search_mock.assert_called_once_with(
+            user_code=None,
+            time_field="updated_at",
+            start_at="2026-03-01T00:00:00",
+            end_at="2026-03-20T23:59:59",
+            query="",
+            memory_type="context",
+            tags=[],
+            include_archived=False,
+            limit=5,
+        )
+        self.assertEqual(1, structured["count"])
+        self.assertEqual(7, structured["items"][0]["id"])
+
+    @patch("service.mcp_server.search_recent_context_summaries")
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_recall_for_response_merges_memory_and_context_hits(
+        self, search_memories_mock, search_context_mock, recent_context_mock
+    ) -> None:
+        search_memories_mock.return_value = [
+            {"id": 3, "title": "朋友小王高血压", "content": "你的朋友小王有高血压", "confidence": 0.92}
+        ]
+        search_context_mock.return_value = [
+            {"id": 5, "topic": "朋友健康近况", "summary": "你提到小王最近在控制血压"}
+        ]
+        recent_context_mock.return_value = [
+            {"id": 8, "topic": "最近在研究食疗", "summary": "你最近也在看通过饮食管理血压的资料。"}
+        ]
+
+        _, structured = await self.server.call_tool(
+            "recall_for_response",
+            {
+                "user_message": "芹菜汁有什么作用",
+                "draft_response": "芹菜汁可能对血压管理有帮助。",
+                "topic_hint": "饮食和健康",
+                "memory_limit": 2,
+                "context_limit": 2,
+                "recent_context_limit": 1,
+            },
+        )
+
+        search_memories_mock.assert_called_once()
+        search_context_mock.assert_called_once()
+        recent_context_mock.assert_called_once_with(
+            user_code=None,
+            session_key=None,
+            query="",
+            snapshot_levels=["segment", "topic"],
+            recent_hours=168,
+            limit=1,
+        )
+        self.assertEqual("芹菜汁有什么作用 饮食和健康 芹菜汁可能对血压管理有帮助。", structured["query_text"])
+        self.assertEqual(1, structured["memory_count"])
+        self.assertEqual(1, structured["context_count"])
+        self.assertEqual(1, structured["recent_context_count"])
+        self.assertIn("朋友小王高血压", structured["memory_titles"])
+        self.assertIn("最近在研究食疗", structured["recent_context_topics"])
+        self.assertIn("最近在研究食疗", structured["suggested_followup_hooks"][0])
+        self.assertTrue(structured["should_recall"])
+        self.assertEqual("gentle_personalization", structured["suggested_integration_style"])
+        self.assertIn("high-confidence memory", structured["decision_reasons"])
+
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_recall_for_response_can_suppress_weak_irrelevant_hits(
+        self, search_memories_mock, search_context_mock
+    ) -> None:
+        search_memories_mock.return_value = [
+            {"id": 9, "title": "检索验证B", "content": "我偏爱美式咖啡这种苦一点的口味。", "confidence": 0.4}
+        ]
+        search_context_mock.return_value = []
+
+        _, structured = await self.server.call_tool(
+            "recall_for_response",
+            {
+                "user_message": "给我解释一下 TCP 三次握手",
+                "draft_response": "TCP 通过 SYN、SYN-ACK、ACK 建立连接。",
+                "topic_hint": "网络基础",
+                "memory_limit": 2,
+                "context_limit": 2,
+            },
+        )
+
+        self.assertFalse(structured["should_recall"])
+        self.assertEqual("answer_normally", structured["suggested_integration_style"])
+        self.assertIn("no strong personalization signal", structured["decision_reasons"])
+
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_recall_for_response_requires_relevance_not_just_personal_memory(
+        self, search_memories_mock, search_context_mock
+    ) -> None:
+        search_memories_mock.return_value = [
+            {
+                "id": 9,
+                "title": "favorite_food: 白菜",
+                "content": "白菜",
+                "confidence": 0.9,
+                "is_explicit": True,
+                "vector_score": 0.39,
+                "hybrid_score": 0.39,
+                "attribute_key": "favorite_food",
+            }
+        ]
+        search_context_mock.return_value = []
+
+        _, structured = await self.server.call_tool(
+            "recall_for_response",
+            {
+                "user_message": "芹菜汁有什么作用",
+                "draft_response": "芹菜汁可能对血压管理有帮助。",
+                "topic_hint": "饮食和健康",
+                "memory_limit": 2,
+                "context_limit": 2,
+            },
+        )
+
+        self.assertFalse(structured["should_recall"])
+        self.assertEqual("answer_normally", structured["suggested_integration_style"])
+        self.assertIn("no strong personalization signal", structured["decision_reasons"])
+
+    @patch("service.mcp_server.search_recent_context_summaries")
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_recall_for_response_returns_tiered_and_suppressed_memory_groups(
+        self, search_memories_mock, search_context_mock, recent_context_mock
+    ) -> None:
+        search_memories_mock.return_value = [
+            {
+                "id": 3,
+                "title": "favorite_drink: 黑咖啡",
+                "content": "我最喜欢黑咖啡",
+                "confidence": 0.95,
+                "is_explicit": True,
+                "hybrid_score": 0.66,
+                "attribute_key": "favorite_drink",
+                "disclosure_policy": "normal",
+                "sensitivity_level": "normal",
+                "lifecycle_state": "stable",
+            },
+            {
+                "id": 4,
+                "title": "朋友小王高血压",
+                "content": "你的朋友小王在饮食管理项目里负责资料整理，也有高血压",
+                "confidence": 0.92,
+                "is_explicit": True,
+                "hybrid_score": 0.71,
+                "attribute_key": "health_condition",
+                "disclosure_policy": "internal_only",
+                "sensitivity_level": "restricted",
+                "lifecycle_state": "stable",
+                "subject_key": "friend_xiaowang",
+                "related_subject_key": "project_diet_plan",
+                "value_text": "负责资料整理",
+                "claim": "小王在饮食管理项目里负责资料整理",
+            },
+        ]
+        search_context_mock.return_value = [{"id": 6, "topic": "饮食偏好", "summary": "你长期喜欢黑咖啡"}]
+        recent_context_mock.return_value = [{"id": 8, "topic": "最近在研究茶饮", "summary": "最近你在比较乌龙茶和咖啡"}]
+
+        _, structured = await self.server.call_tool(
+            "recall_for_response",
+            {
+                "user_message": "黑咖啡提神效果怎么样",
+                "draft_response": "黑咖啡通常会有提神作用。",
+                "topic_hint": "饮品和习惯",
+            },
+        )
+
+        self.assertEqual(1, structured["direct_memory_count"])
+        self.assertEqual(1, structured["suppressed_memory_count"])
+        self.assertEqual("favorite_drink: 黑咖啡", structured["direct_memories"][0]["title"])
+        self.assertEqual("朋友小王高血压", structured["suppressed_memories"][0]["title"])
+        self.assertIn("internal_only", structured["disclosure_warnings"][0])
+        self.assertEqual("stable", structured["direct_memories"][0]["lifecycle_state"])
+        self.assertEqual(1, structured["related_entity_count"])
+        self.assertEqual("friend_xiaowang", structured["related_entities"][0]["subject_key"])
+        self.assertIn("responsible_for", structured["related_entities"][0]["relationship_reasons"])
+        self.assertEqual("internal_reference_only", structured["related_entities"][0]["suggested_integration_hint"])
+        self.assertTrue(
+            any(
+                "内部线索" in hook
+                and "friend_xiaowang" in hook
+                and "responsible_for" in hook
+                and "仅供内部参考" in hook
+                for hook in structured["suggested_followup_hooks"]
+            )
+        )
+        self.assertIn("gentle_personalization", structured["internal_strategy_summary"])
+        self.assertIn("high-confidence memory", structured["internal_strategy_summary"])
+        self.assertIn("内部线索", structured["internal_strategy_summary"])
+        self.assertEqual("gentle_personalization", structured["internal_strategy"]["style"])
+        self.assertIn("high-confidence memory", structured["internal_strategy"]["reasons"])
+        self.assertTrue(structured["internal_strategy"]["should_recall"])
+        self.assertTrue(structured["internal_strategy"]["followup_hooks"])
+        self.assertTrue(structured["internal_strategy"]["hook_entries"])
+        self.assertTrue(structured["internal_strategy"]["recommended_primary_hook"])
+        self.assertTrue(structured["internal_strategy"]["recommended_secondary_hooks"])
+        self.assertTrue(structured["internal_strategy"]["disclosure_warnings"])
+        self.assertTrue(structured["internal_strategy"]["safe_hooks"])
+        self.assertTrue(structured["internal_strategy"]["internal_only_hooks"])
+        self.assertTrue(
+            any(
+                entry["visibility"] == "safe" and entry["kind"] == "recent_topic"
+                for entry in structured["internal_strategy"]["hook_entries"]
+            )
+        )
+        self.assertTrue(
+            any(
+                entry["visibility"] == "internal_only" and entry["kind"] == "entity_relation"
+                for entry in structured["internal_strategy"]["hook_entries"]
+            )
+        )
+        self.assertTrue(
+            any(
+                entry["visibility"] == "safe" and entry["kind"] == "preference_hint"
+                for entry in structured["internal_strategy"]["hook_entries"]
+            )
+        )
+        recent_topic_entry = next(
+            entry
+            for entry in structured["internal_strategy"]["hook_entries"]
+            if entry["visibility"] == "safe" and entry["kind"] == "recent_topic"
+        )
+        memory_hint_entry = next(
+            entry
+            for entry in structured["internal_strategy"]["hook_entries"]
+            if entry["visibility"] == "safe" and entry["kind"] == "preference_hint"
+        )
+        entity_relation_entry = next(
+            entry
+            for entry in structured["internal_strategy"]["hook_entries"]
+            if entry["visibility"] == "internal_only" and entry["kind"] == "entity_relation"
+        )
+        self.assertEqual("最近在研究茶饮", recent_topic_entry["topic"])
+        self.assertIn("乌龙茶和咖啡", recent_topic_entry["summary"])
+        self.assertEqual(40, recent_topic_entry["use_priority"])
+        self.assertEqual("medium", recent_topic_entry["confidence_band"])
+        self.assertEqual(3, memory_hint_entry["memory_id"])
+        self.assertEqual("favorite_drink: 黑咖啡", memory_hint_entry["memory_title"])
+        self.assertEqual("favorite_drink", memory_hint_entry["attribute_key"])
+        self.assertEqual("gentle_personalization", memory_hint_entry["integration_hint"])
+        self.assertEqual(90, memory_hint_entry["use_priority"])
+        self.assertEqual("high", memory_hint_entry["confidence_band"])
+        self.assertEqual("friend_xiaowang", entity_relation_entry["subject_key"])
+        self.assertIn("responsible_for", entity_relation_entry["reasons"])
+        self.assertEqual("internal_reference_only", entity_relation_entry["integration_hint"])
+        self.assertEqual(85, entity_relation_entry["use_priority"])
+        self.assertEqual("high", entity_relation_entry["confidence_band"])
+        self.assertTrue(
+            any("recent topic:" in hook for hook in structured["internal_strategy"]["safe_hooks"])
+        )
+        self.assertTrue(
+            any("记忆提示：" in hook for hook in structured["internal_strategy"]["safe_hooks"])
+        )
+        self.assertTrue(
+            any("仅供内部参考" in hook for hook in structured["internal_strategy"]["internal_only_hooks"])
+        )
+        priorities = [
+            entry["use_priority"]
+            for entry in structured["internal_strategy"]["hook_entries"]
+            if entry.get("use_priority") is not None
+        ]
+        self.assertEqual(sorted(priorities, reverse=True), priorities)
+        kinds_in_order = [entry["kind"] for entry in structured["internal_strategy"]["hook_entries"]]
+        self.assertEqual(
+            ["preference_hint", "entity_relation", "recent_topic"],
+            kinds_in_order[:3],
+        )
+        self.assertEqual(
+            "preference_hint",
+            structured["internal_strategy"]["recommended_primary_hook"]["kind"],
+        )
+        self.assertEqual(
+            90,
+            structured["internal_strategy"]["recommended_primary_hook"]["use_priority"],
+        )
+        self.assertEqual(
+            "favorite_drink: 黑咖啡",
+            structured["internal_strategy"]["recommended_primary_hook"]["memory_title"],
+        )
+        self.assertEqual(
+            ["recent_topic", "entity_relation"],
+            [
+                hook["kind"]
+                for hook in structured["internal_strategy"]["recommended_secondary_hooks"]
+            ][:2],
+        )
+
+    @patch("service.mcp_server.search_recent_context_summaries")
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_recall_for_response_emits_fact_hint_for_non_preference_memory(
+        self, search_memories_mock, search_context_mock, recent_context_mock
+    ) -> None:
+        search_memories_mock.return_value = [
+            {
+                "id": 11,
+                "title": "current_project: memory MCP",
+                "content": "你最近在维护 memory MCP 项目",
+                "confidence": 0.88,
+                "is_explicit": True,
+                "hybrid_score": 0.63,
+                "attribute_key": "current_project",
+                "disclosure_policy": "normal",
+                "sensitivity_level": "normal",
+                "lifecycle_state": "stable",
+            }
+        ]
+        search_context_mock.return_value = []
+        recent_context_mock.return_value = []
+
+        _, structured = await self.server.call_tool(
+            "recall_for_response",
+            {
+                "user_message": "我们这个记忆系统下一步怎么做",
+                "draft_response": "可以先收口召回策略和评测。",
+                "topic_hint": "memory MCP 项目规划",
+            },
+        )
+
+        fact_hint_entry = next(
+            entry
+            for entry in structured["internal_strategy"]["hook_entries"]
+            if entry["visibility"] == "safe" and entry["kind"] == "fact_hint"
+        )
+        self.assertEqual(11, fact_hint_entry["memory_id"])
+        self.assertEqual("current_project: memory MCP", fact_hint_entry["memory_title"])
+        self.assertEqual("current_project", fact_hint_entry["attribute_key"])
+        self.assertEqual("answer_normally", fact_hint_entry["integration_hint"])
+        self.assertEqual(60, fact_hint_entry["use_priority"])
+        self.assertEqual("medium", fact_hint_entry["confidence_band"])
+        self.assertEqual(
+            "fact_hint",
+            structured["internal_strategy"]["recommended_primary_hook"]["kind"],
+        )
+        self.assertEqual([], structured["internal_strategy"]["recommended_secondary_hooks"])
+        self.assertTrue(
+            any("记忆提示：" in hook for hook in structured["internal_strategy"]["safe_hooks"])
+        )
+
+    @patch("service.mcp_server.maintain_memory_store")
+    async def test_maintain_memory_store_tool_delegates_to_storage(
+        self, maintain_memory_store_mock
+    ) -> None:
+        maintain_memory_store_mock.return_value = {
+            "scanned_count": 5,
+            "updated_count": 2,
+            "dry_run": False,
+            "changed_ids": [4, 7],
+            "lifecycle_counts": {"cold": 1, "stale": 1},
+            "updated_memories": [{"id": 4}, {"id": 7}],
+        }
+
+        _, structured = await self.server.call_tool(
+            "maintain_memory_store",
+            {
+                "limit": 50,
+                "dry_run": False,
+                "include_archived": True,
+            },
+        )
+
+        maintain_memory_store_mock.assert_called_once_with(
+            user_code=None,
+            limit=50,
+            dry_run=False,
+            include_archived=True,
+        )
+        self.assertEqual(5, structured["scanned_count"])
+        self.assertEqual(2, structured["updated_count"])
+        self.assertEqual([4, 7], structured["changed_ids"])
+
+    @patch("service.mcp_server.search_recent_context_summaries")
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_orchestrate_turn_memory_returns_recall_and_capture_plan(
+        self, search_memories_mock, search_context_mock, recent_context_mock
+    ) -> None:
+        search_memories_mock.return_value = [
+            {
+                "id": 3,
+                "title": "favorite_drink: 黑咖啡",
+                "content": "我最喜欢黑咖啡",
+                "confidence": 0.95,
+                "hybrid_score": 0.66,
+                "disclosure_policy": "normal",
+                "lifecycle_state": "stable",
+            }
+        ]
+        search_context_mock.return_value = [{"id": 6, "topic": "饮食偏好", "summary": "你长期喜欢黑咖啡"}]
+        recent_context_mock.return_value = []
+
+        _, structured = await self.server.call_tool(
+            "orchestrate_turn_memory",
+            {
+                "user_message": "黑咖啡提神效果怎么样",
+                "draft_response": "黑咖啡通常会有提神作用。",
+                "session_key": "coffee",
+                "topic_hint": "饮品和习惯",
+            },
+        )
+
+        self.assertTrue(structured["recall"]["should_recall"])
+        self.assertTrue(structured["should_capture"])
+        self.assertEqual("coffee", structured["capture_plan"]["session_key"])
+        self.assertEqual(
+            ["recall_for_response", "answer_user", "capture_turn"],
+            structured["recommended_sequence"],
+        )
+        self.assertIsNone(structured["executed_capture"])
+
+    @patch("service.mcp_server.sync_session_context")
+    @patch("service.mcp_server.run_capture_cycle")
+    @patch("service.mcp_server.search_recent_context_summaries")
+    @patch("service.mcp_server.search_context_snapshots")
+    @patch("service.mcp_server.search_memories")
+    async def test_orchestrate_turn_memory_can_execute_post_turn_capture(
+        self,
+        search_memories_mock,
+        search_context_mock,
+        recent_context_mock,
+        run_capture_cycle_mock,
+        sync_session_context_mock,
+    ) -> None:
+        search_memories_mock.return_value = []
+        search_context_mock.return_value = []
+        recent_context_mock.return_value = []
+        run_capture_cycle_mock.return_value = {
+            "event_count": 2,
+            "analysis_result_count": 1,
+            "persisted_count": 1,
+        }
+        sync_session_context_mock.return_value = {
+            "event_count": 2,
+            "segment_snapshot": {"id": 21, "topic": "饮食偏好"},
+            "topic_snapshot": None,
+            "global_topic_snapshot": None,
+            "memory_sync": None,
+        }
+
+        _, structured = await self.server.call_tool(
+            "orchestrate_turn_memory",
+            {
+                "user_message": "记住我最近开始每天骑车通勤。",
+                "assistant_text": "我记下来了，后面可以结合这个习惯来建议。",
+                "session_key": "life-2026-03",
+                "topic_hint": "通勤和运动",
+                "capture_after_response": True,
+            },
+        )
+
+        run_capture_cycle_mock.assert_called_once_with(
+            user_text="记住我最近开始每天骑车通勤。",
+            assistant_text="我记下来了，后面可以结合这个习惯来建议。",
+            user_code=None,
+            session_key="life-2026-03",
+            source_ref=None,
+            consolidate=True,
+        )
+        sync_session_context_mock.assert_called_once_with(
+            session_key="life-2026-03",
+            turns=None,
+            user_code=None,
+            topic_hint="通勤和运动",
+            source_ref=None,
+            extract_memory=False,
+        )
+        self.assertIsNotNone(structured["executed_capture"])
+        self.assertEqual(1, structured["executed_capture"]["capture"]["persisted_count"])
+
+
+if __name__ == "__main__":
+    unittest.main()
