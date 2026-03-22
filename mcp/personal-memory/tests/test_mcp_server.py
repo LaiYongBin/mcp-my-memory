@@ -36,6 +36,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
                 "merge_domain_alias",
                 "maintain_memory_store",
                 "orchestrate_turn_memory",
+                "merge_duplicate_memories",
             },
             names,
         )

@@ -43,5 +43,38 @@ class HybridSearchFallbackTests(unittest.TestCase):
         self.assertFalse(HYBRID_SEARCH_ENABLED)
 
 
+class MergeDuplicateMemoriesTests(unittest.TestCase):
+    def test_merge_result_schema_exists(self) -> None:
+        from service.schemas import MergeResult
+        result = MergeResult(merged_pairs=[], merged_count=0, dry_run=True)
+        self.assertTrue(result.dry_run)
+        self.assertEqual(0, result.merged_count)
+
+    def test_dry_run_does_not_write_db(self) -> None:
+        from unittest.mock import patch, MagicMock
+        from service.memory_ops import merge_duplicate_memories
+
+        with patch("service.memory_ops.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                {"master_candidate_id": 1, "slave_candidate_id": 2, "distance": 0.05}
+            ]
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_conn.return_value.__enter__.return_value.commit.return_value = None
+
+            with patch("service.memory_ops.get_memory") as mock_get:
+                mock_get.side_effect = lambda mid, uc: {
+                    "id": mid, "confidence": 0.8, "updated_at": "2026-01-01",
+                    "content": f"内容{mid}", "tags": [], "status": "active"
+                }
+                result = merge_duplicate_memories(
+                    user_code="LYB",
+                    similarity_threshold=0.92,
+                    dry_run=True,
+                    limit=10,
+                )
+            mock_conn.return_value.__enter__.return_value.commit.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

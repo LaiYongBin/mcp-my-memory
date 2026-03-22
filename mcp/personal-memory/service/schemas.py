@@ -279,6 +279,12 @@ class InternalStrategy(BaseModel):
     disclosure_warnings: List[str] = Field(default_factory=list)
 
 
+class MergeResult(MCPResultBase):
+    merged_pairs: List[Dict[str, Any]] = Field(default_factory=list)
+    merged_count: int = 0
+    dry_run: bool = False
+
+
 class RecallResult(MCPResultBase):
     query_text: str
     memories: List[Dict[str, Any]] = Field(default_factory=list)

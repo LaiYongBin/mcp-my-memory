@@ -894,6 +894,142 @@ def delete_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[D
     return result
 
 
+
+
+def find_duplicate_pairs(
+    *,
+    user_code: str,
+    similarity_threshold: float = 0.92,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """查找语义相似度超过阈值的记忆对（两侧均过滤 user_code）。"""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.memory_id AS master_candidate_id,
+                   b.memory_id AS slave_candidate_id,
+                   (a.embedding <=> b.embedding) AS distance
+            FROM memory_vector_chunk a
+            JOIN memory_vector_chunk b
+                ON b.memory_id > a.memory_id
+                AND b.chunk_index = 0
+                AND b.user_code = %s
+            WHERE a.chunk_index = 0
+              AND a.user_code = %s
+              AND (a.embedding <=> b.embedding) < (1.0 - %s)
+            ORDER BY distance ASC
+            LIMIT %s
+            """,
+            (user_code, user_code, similarity_threshold, limit * 2),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def merge_memory_pair(
+    *,
+    user_code: str,
+    master_id: int,
+    slave_id: int,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """合并 slave 到 master，slave 归档，master 追加内容和 tags。"""
+    import json
+    master = get_memory(master_id, user_code)
+    slave = get_memory(slave_id, user_code)
+    if not master or not slave:
+        return {"error": "memory not found"}
+
+    slave_content = str(slave.get("content") or "").strip()
+    master_content = str(master.get("content") or "").strip()
+    merged_content = master_content + "\n\n---\n" + slave_content
+    if len(merged_content) > 4000:
+        merged_content = merged_content[:4000] + "…（已截断）"
+
+    master_tags = list(master.get("tags") or [])
+    slave_tags = list(slave.get("tags") or [])
+    merged_tags = list(dict.fromkeys(master_tags + slave_tags))
+
+    if dry_run:
+        return {
+            "master_id": master_id,
+            "slave_id": slave_id,
+            "dry_run": True,
+            "merged_content_preview": merged_content[:200],
+        }
+
+    with get_conn() as conn, conn.cursor() as cur:
+        # slave 归档
+        cur.execute(
+            "UPDATE memory_record SET status = 'archived', updated_at = now() WHERE id = %s",
+            (slave_id,)
+        )
+        # master 设置 supersedes_id
+        cur.execute(
+            "UPDATE memory_record SET supersedes_id = %s, updated_at = now() WHERE id = %s",
+            (slave_id, master_id)
+        )
+        # master 更新 content 和 tags
+        cur.execute(
+            "UPDATE memory_record SET content = %s, tags = %s::jsonb, updated_at = now() WHERE id = %s",
+            (merged_content, json.dumps(merged_tags), master_id)
+        )
+        conn.commit()
+
+    return {
+        "master_id": master_id,
+        "slave_id": slave_id,
+        "dry_run": False,
+    }
+
+
+def merge_duplicate_memories(
+    *,
+    user_code: Optional[str] = None,
+    similarity_threshold: float = 0.92,
+    dry_run: bool = False,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    resolved_user = _resolve_user(user_code)
+    pairs = find_duplicate_pairs(
+        user_code=resolved_user,
+        similarity_threshold=similarity_threshold,
+        limit=limit,
+    )
+    valid_pairs = []
+    for pair in pairs:
+        master = get_memory(int(pair["master_candidate_id"]), resolved_user)
+        slave = get_memory(int(pair["slave_candidate_id"]), resolved_user)
+        if not master or not slave:
+            continue
+        if master.get("status") == "archived" or slave.get("status") == "archived":
+            continue
+        # 保留 confidence 更高者为 master；confidence 相同时取 updated_at 更新者
+        slave_conf = float(slave.get("confidence") or 0)
+        master_conf = float(master.get("confidence") or 0)
+        if slave_conf > master_conf:
+            master, slave = slave, master
+        elif slave_conf == master_conf:
+            if (slave.get("updated_at") or "") > (master.get("updated_at") or ""):
+                master, slave = slave, master
+        valid_pairs.append((master, slave))
+
+    merged_pairs = []
+    for master, slave in valid_pairs:
+        result = merge_memory_pair(
+            user_code=resolved_user,
+            master_id=int(master["id"]),
+            slave_id=int(slave["id"]),
+            dry_run=dry_run,
+        )
+        merged_pairs.append(result)
+
+    return {
+        "merged_pairs": merged_pairs,
+        "merged_count": len(merged_pairs),
+        "dry_run": dry_run,
+    }
+
+
 def _search_memories_hybrid(
     *,
     user_code: str,

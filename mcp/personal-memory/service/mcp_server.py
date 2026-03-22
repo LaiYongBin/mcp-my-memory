@@ -43,6 +43,7 @@ from service.memory_ops import (
     delete_memory as delete_memory_row,
     maintain_memory_store,
     mark_memories_recalled,
+    merge_duplicate_memories,
     search_memories,
     search_memories_by_time_range,
     upsert_memory,
@@ -57,6 +58,7 @@ from service.schemas import (
     MaintenanceResult,
     MemoryMutationResult,
     MemoryWindowField,
+    MergeResult,
     RecallResult,
     RecommendedResponsePlan,
     TurnOrchestrationResult,
@@ -1212,6 +1214,21 @@ def create_server(
             executed_capture=executed_capture,
             recommended_sequence=["recall_for_response", "answer_user", "capture_turn"],
         )
+
+    @server.tool(name="merge_duplicate_memories", structured_output=True)
+    def merge_duplicate_memories_tool(
+        user_code: Optional[str] = None,
+        similarity_threshold: float = 0.92,
+        dry_run: bool = False,
+        limit: int = 50,
+    ) -> MergeResult:
+        result = merge_duplicate_memories(
+            user_code=user_code,
+            similarity_threshold=similarity_threshold,
+            dry_run=dry_run,
+            limit=limit,
+        )
+        return MergeResult(**result)
 
     return server
 
