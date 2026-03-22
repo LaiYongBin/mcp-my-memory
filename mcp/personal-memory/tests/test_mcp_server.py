@@ -1090,9 +1090,13 @@ class TurnCountTests(unittest.IsolatedAsyncioTestCase):
 class RecallWeightConfigTests(unittest.TestCase):
     def test_recall_score_weights_exist_in_constants(self) -> None:
         from service.constants import RECALL_SCORE_WEIGHTS
-        self.assertIn("high_confidence_memory", RECALL_SCORE_WEIGHTS)
-        self.assertIn("usable_memory_match", RECALL_SCORE_WEIGHTS)
-        self.assertIn("explicit_memory", RECALL_SCORE_WEIGHTS)
+        required_keys = [
+            "high_confidence_memory", "usable_memory_match", "explicit_memory",
+            "strong_semantic", "moderate_semantic", "personal_memory_signal",
+            "personal_query_signal", "topic_continuity",
+        ]
+        for key in required_keys:
+            self.assertIn(key, RECALL_SCORE_WEIGHTS)
 
     def test_env_override_changes_weight(self) -> None:
         import os
