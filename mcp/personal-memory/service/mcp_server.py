@@ -56,6 +56,7 @@ from service.schemas import (
     MemoryMutationResult,
     MemoryWindowField,
     RecallResult,
+    RecommendedResponsePlan,
     TurnOrchestrationResult,
 )
 
@@ -389,9 +390,7 @@ def _build_response_plan(
     suppressed_memories: List[Dict[str, Any]],
     safe_hooks: List[str],
     internal_only_hooks: List[str],
-) -> "RecommendedResponsePlan":
-    from service.schemas import RecommendedResponsePlan
-
+) -> RecommendedResponsePlan:
     inline_memories = [
         str(item.get("title") or "")
         for item in direct_memories

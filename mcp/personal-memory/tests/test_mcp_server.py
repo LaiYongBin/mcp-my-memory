@@ -916,6 +916,22 @@ class BuildResponsePlanTests(unittest.TestCase):
         )
         self.assertIn("recent topic: 骑车通勤 -> 用户最近每天骑车", plan.followup_hooks)
 
+    def test_gentle_personalization_with_direct_memories_sets_hint(self) -> None:
+        from service.mcp_server import _build_response_plan
+        mem = self._make_memory("用户喜欢骑车", confidence=0.75)
+        plan = _build_response_plan(
+            suggested_integration_style="gentle_personalization",
+            direct_memories=[mem],
+            contextual_memories=[],
+            suppressed_memories=[],
+            safe_hooks=[],
+            internal_only_hooks=[],
+        )
+        # gentle_personalization + direct memories → second branch in main_sentence_hint
+        self.assertEqual("gentle_personalization", plan.primary_answer_style)
+        self.assertIn("用户喜欢骑车", plan.inline_memories)
+        self.assertIn("轻量带入", plan.main_sentence_hint)
+
 
 if __name__ == "__main__":
     unittest.main()
