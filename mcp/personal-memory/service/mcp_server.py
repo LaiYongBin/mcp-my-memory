@@ -381,6 +381,51 @@ def _enrich_related_entities(
     return enriched
 
 
+def _build_response_plan(
+    *,
+    suggested_integration_style: str,
+    direct_memories: List[Dict[str, Any]],
+    contextual_memories: List[Dict[str, Any]],
+    suppressed_memories: List[Dict[str, Any]],
+    safe_hooks: List[str],
+    internal_only_hooks: List[str],
+) -> "RecommendedResponsePlan":
+    from service.schemas import RecommendedResponsePlan
+
+    inline_memories = [
+        str(item.get("title") or "")
+        for item in direct_memories
+        if item.get("title")
+    ]
+    soft_mentions = [
+        str(item.get("title") or "")
+        for item in contextual_memories
+        if item.get("title")
+    ]
+    internal_only: List[str] = [
+        str(item.get("title") or "")
+        for item in suppressed_memories
+        if item.get("title")
+    ] + list(internal_only_hooks)
+
+    main_sentence_hint = ""
+    if inline_memories and suggested_integration_style == "direct_personalization":
+        main_sentence_hint = f"主句直接融入：{inline_memories[0]}"
+    elif inline_memories and suggested_integration_style == "gentle_personalization":
+        main_sentence_hint = f"轻量带入：{inline_memories[0]}，保持自然语气"
+    elif soft_mentions and suggested_integration_style == "gentle_personalization":
+        main_sentence_hint = f"可轻量提及：{soft_mentions[0]}"
+
+    return RecommendedResponsePlan(
+        primary_answer_style=suggested_integration_style,
+        main_sentence_hint=main_sentence_hint,
+        inline_memories=inline_memories,
+        soft_mentions=soft_mentions,
+        internal_only=internal_only,
+        followup_hooks=list(safe_hooks),
+    )
+
+
 def _build_internal_strategy_summary(
     *,
     suggested_integration_style: str,
@@ -629,6 +674,14 @@ def _build_recall_result(
         decision_reasons=list(decision["decision_reasons"]),
         suggested_followup_hooks=followup_hooks,
     )
+    response_plan = _build_response_plan(
+        suggested_integration_style=str(decision["suggested_integration_style"]),
+        direct_memories=memory_groups["direct"],
+        contextual_memories=memory_groups["contextual"],
+        suppressed_memories=memory_groups["suppressed"],
+        safe_hooks=safe_hooks,
+        internal_only_hooks=internal_only_hooks,
+    )
     return RecallResult(
         query_text=query_text,
         memories=visible_memories,
@@ -658,6 +711,7 @@ def _build_recall_result(
         internal_strategy=internal_strategy,
         internal_strategy_summary=internal_strategy_summary,
         disclosure_warnings=disclosure_warnings,
+        recommended_response_plan=response_plan,
     )
 
 

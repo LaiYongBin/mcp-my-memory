@@ -834,5 +834,88 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, structured["executed_capture"]["capture"]["persisted_count"])
 
 
+class BuildResponsePlanTests(unittest.TestCase):
+    def _make_memory(self, title: str, confidence: float = 0.8) -> dict:
+        return {
+            "id": 1,
+            "title": title,
+            "content": title,
+            "confidence": confidence,
+            "is_explicit": False,
+            "hybrid_score": 0.0,
+            "vector_score": 0.0,
+            "rank_score": 0.0,
+        }
+
+    def test_answer_normally_when_no_recall(self) -> None:
+        from service.mcp_server import _build_response_plan
+        plan = _build_response_plan(
+            suggested_integration_style="answer_normally",
+            direct_memories=[],
+            contextual_memories=[],
+            suppressed_memories=[],
+            safe_hooks=[],
+            internal_only_hooks=[],
+        )
+        self.assertEqual("answer_normally", plan.primary_answer_style)
+        self.assertEqual([], plan.inline_memories)
+        self.assertEqual("", plan.main_sentence_hint)
+
+    def test_inline_memories_from_direct(self) -> None:
+        from service.mcp_server import _build_response_plan
+        mem = self._make_memory("用户喜欢黑咖啡", confidence=0.9)
+        plan = _build_response_plan(
+            suggested_integration_style="direct_personalization",
+            direct_memories=[mem],
+            contextual_memories=[],
+            suppressed_memories=[],
+            safe_hooks=[],
+            internal_only_hooks=[],
+        )
+        self.assertEqual("direct_personalization", plan.primary_answer_style)
+        self.assertIn("用户喜欢黑咖啡", plan.inline_memories)
+        self.assertNotEqual("", plan.main_sentence_hint)
+
+    def test_soft_mentions_from_contextual(self) -> None:
+        from service.mcp_server import _build_response_plan
+        mem = self._make_memory("用户最近在学骑车", confidence=0.7)
+        plan = _build_response_plan(
+            suggested_integration_style="gentle_personalization",
+            direct_memories=[],
+            contextual_memories=[mem],
+            suppressed_memories=[],
+            safe_hooks=[],
+            internal_only_hooks=[],
+        )
+        self.assertIn("用户最近在学骑车", plan.soft_mentions)
+        self.assertEqual([], plan.inline_memories)
+
+    def test_internal_only_from_suppressed_and_hooks(self) -> None:
+        from service.mcp_server import _build_response_plan
+        mem = self._make_memory("敏感信息", confidence=0.9)
+        plan = _build_response_plan(
+            suggested_integration_style="gentle_personalization",
+            direct_memories=[],
+            contextual_memories=[],
+            suppressed_memories=[mem],
+            safe_hooks=[],
+            internal_only_hooks=["内部线索：某某与当前话题相关，仅供内部参考。"],
+        )
+        self.assertIn("敏感信息", plan.internal_only)
+        self.assertEqual(2, len(plan.internal_only))
+
+    def test_followup_hooks_from_safe_hooks(self) -> None:
+        from service.mcp_server import _build_response_plan
+        plan = _build_response_plan(
+            suggested_integration_style="gentle_personalization",
+            direct_memories=[],
+            contextual_memories=[],
+            suppressed_memories=[],
+            safe_hooks=["recent topic: 骑车通勤 -> 用户最近每天骑车"],
+            internal_only_hooks=[],
+        )
+        self.assertIn("recent topic: 骑车通勤 -> 用户最近每天骑车", plan.followup_hooks)
+
+
 if __name__ == "__main__":
     unittest.main()
