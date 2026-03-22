@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Literal, TypeAlias
 
 
@@ -116,3 +117,6 @@ ConflictMode: TypeAlias = Literal["coexist", "replace", "merge", "review"]
 LifecycleState: TypeAlias = Literal["fresh", "stable", "cold", "stale", "conflicted"]
 SensitivityLevel: TypeAlias = Literal["public", "normal", "sensitive", "restricted"]
 DisclosurePolicy: TypeAlias = Literal["normal", "gentle", "user_confirm", "internal_only"]
+
+# B3: Hybrid search feature flag
+HYBRID_SEARCH_ENABLED = os.getenv("LYB_SKILL_MEMORY_DB_HYBRID_SEARCH", "false").lower() == "true"

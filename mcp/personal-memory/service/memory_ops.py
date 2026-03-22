@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from psycopg.types.json import Json
 
 from service.constants import (
+    HYBRID_SEARCH_ENABLED,
     SOURCE_CONVERSATION,
     SOURCE_MANUAL,
     SOURCE_REVIEW_APPROVED,
@@ -25,7 +26,8 @@ from service.domain_registry import (
     resolve_lookup_value,
     resolve_taxonomy_value,
 )
-from service.embeddings import embeddings_enabled, refresh_memory_embedding, vector_search
+from service.embeddings import embeddings_enabled, generate_embedding, refresh_memory_embedding, vector_search
+from pgvector.psycopg import Vector
 from service.entity_graph import refresh_entity_graph_for_subject, sync_entity_graph_for_memory
 from service.memory_governance import apply_memory_governance, derive_lifecycle_state
 
@@ -310,13 +312,27 @@ def search_memories(
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
+    query_vec: Optional[List[float]] = None
     vector_scores = {}
     if query.strip() and embeddings_enabled():
         try:
-            for row in vector_search(query.strip(), resolved_user, limit=limit):
-                vector_scores[int(row["memory_id"])] = float(row["vector_score"])
+            query_vec = generate_embedding(query.strip())
+            if query_vec is not None:
+                for row in vector_search(query.strip(), resolved_user, limit=limit):
+                    vector_scores[int(row["memory_id"])] = float(row["vector_score"])
         except Exception as exc:
             logger.warning("vector search unavailable, falling back to lexical search: %s", exc)
+
+    if HYBRID_SEARCH_ENABLED and query_vec is not None:
+        return _search_memories_hybrid(
+            user_code=resolved_user,
+            query_text=query.strip(),
+            query_vec=query_vec,
+            limit=limit,
+            memory_type=memory_type,
+            tags=tags,
+            include_archived=include_archived,
+        )
 
     tags = tags or []
     conditions = ["user_code = %s", "deleted_at IS NULL"]
@@ -876,3 +892,51 @@ def delete_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[D
     except Exception:
         pass
     return result
+
+
+def _search_memories_hybrid(
+    *,
+    user_code: str,
+    query_text: str,
+    query_vec: List[float],
+    limit: int,
+    memory_type: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    include_archived: bool = False,
+) -> List[Dict[str, Any]]:
+    archived_filter = "" if include_archived else "AND mr.status != 'archived'"
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT mr.*,
+                   ts_rank_cd(mr.search_vector, websearch_to_tsquery('simple', %s)) AS rank_score,
+                   (mvc.embedding <=> %s::vector) AS vector_distance,
+                   COALESCE(
+                       ts_rank_cd(mr.search_vector, websearch_to_tsquery('simple', %s)) * 0.4
+                       + (1.0 - (mvc.embedding <=> %s::vector)) * 0.6,
+                       ts_rank_cd(mr.search_vector, websearch_to_tsquery('simple', %s)) * 0.4
+                   ) AS hybrid_score
+            FROM memory_record mr
+            LEFT JOIN memory_vector_chunk mvc ON mvc.memory_id = mr.id AND mvc.chunk_index = 0
+            WHERE mr.user_code = %s
+              {archived_filter}
+              AND (
+                  mr.search_vector @@ websearch_to_tsquery('simple', %s)
+                  OR (mvc.embedding IS NOT NULL AND (mvc.embedding <=> %s::vector) < 0.5)
+              )
+            ORDER BY hybrid_score DESC NULLS LAST
+            LIMIT %s
+            """,
+            (
+                query_text,          # rank_score
+                Vector(query_vec),   # vector_distance
+                query_text,          # COALESCE rank
+                Vector(query_vec),   # COALESCE vector
+                query_text,          # COALESCE else rank
+                user_code,           # WHERE user_code
+                query_text,          # WHERE full-text
+                Vector(query_vec),   # WHERE vector
+                limit,
+            ),
+        )
+        return [dict(row) for row in cur.fetchall()]

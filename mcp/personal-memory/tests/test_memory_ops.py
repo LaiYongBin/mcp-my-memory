@@ -28,5 +28,20 @@ class MaintainMemoryStoreFilterTests(unittest.TestCase):
         self.assertEqual({"lifecycle_states": ["cold"]}, result.filter_applied)
 
 
+class HybridSearchFallbackTests(unittest.TestCase):
+    def test_hybrid_search_enabled_constant_is_bool(self) -> None:
+        from service.constants import HYBRID_SEARCH_ENABLED
+        self.assertIsInstance(HYBRID_SEARCH_ENABLED, bool)
+
+    def test_hybrid_search_disabled_by_default(self) -> None:
+        import os
+        os.environ.pop("LYB_SKILL_MEMORY_DB_HYBRID_SEARCH", None)
+        import importlib
+        import service.constants
+        importlib.reload(service.constants)
+        from service.constants import HYBRID_SEARCH_ENABLED
+        self.assertFalse(HYBRID_SEARCH_ENABLED)
+
+
 if __name__ == "__main__":
     unittest.main()
