@@ -76,5 +76,29 @@ class MergeDuplicateMemoriesTests(unittest.TestCase):
             mock_conn.return_value.__enter__.return_value.commit.assert_not_called()
 
 
+class StaleMemoryChallengeTests(unittest.TestCase):
+    def test_suggested_question_favorite(self) -> None:
+        from service.memory_ops import _suggested_challenge_question
+        q = _suggested_challenge_question({"attribute_key": "favorite_drink", "value_text": "黑咖啡"})
+        self.assertIn("黑咖啡", q)
+        self.assertIn("喜欢", q)
+
+    def test_suggested_question_dislike(self) -> None:
+        from service.memory_ops import _suggested_challenge_question
+        q = _suggested_challenge_question({"attribute_key": "dislike_food", "value_text": "香菜"})
+        self.assertIn("香菜", q)
+        self.assertIn("不喜欢", q)
+
+    def test_suggested_question_current_goal(self) -> None:
+        from service.memory_ops import _suggested_challenge_question
+        q = _suggested_challenge_question({"attribute_key": "current_goal", "value_text": "减肥", "title": "减肥"})
+        self.assertIn("减肥", q)
+
+    def test_suggested_question_generic(self) -> None:
+        from service.memory_ops import _suggested_challenge_question
+        q = _suggested_challenge_question({"attribute_key": "other", "title": "某个记忆"})
+        self.assertIn("某个记忆", q)
+
+
 if __name__ == "__main__":
     unittest.main()

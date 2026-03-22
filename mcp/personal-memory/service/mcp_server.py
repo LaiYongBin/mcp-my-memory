@@ -41,6 +41,7 @@ from service.entity_memory import summarize_entities_from_memories
 from service.memory_ops import (
     archive_memory,
     delete_memory as delete_memory_row,
+    get_stale_for_challenge,
     maintain_memory_store,
     mark_memories_recalled,
     merge_duplicate_memories,
@@ -1229,6 +1230,21 @@ def create_server(
             limit=limit,
         )
         return MergeResult(**result)
+
+    @server.tool(name="get_stale_memories_for_challenge", structured_output=True)
+    def get_stale_memories_for_challenge_tool(
+        user_code: Optional[str] = None,
+        limit: int = 5,
+        min_days_since_recall: int = 30,
+        memory_types: Optional[List[str]] = None,
+    ) -> ItemListResult:
+        items = get_stale_for_challenge(
+            user_code=user_code,
+            limit=limit,
+            min_days_since_recall=min_days_since_recall,
+            memory_types=memory_types,
+        )
+        return ItemListResult(items=items, count=len(items))
 
     return server
 

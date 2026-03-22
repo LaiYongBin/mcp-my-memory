@@ -1087,3 +1087,58 @@ def _search_memories_hybrid(
             ),
         )
         return [apply_memory_governance(dict(row)) for row in cur.fetchall()]
+
+
+def _suggested_challenge_question(memory: Dict[str, Any]) -> str:
+    attr = memory.get("attribute_key") or ""
+    value = (memory.get("value_text") or "").strip()
+    title = (memory.get("title") or value or "").strip()
+    if attr.startswith("favorite_"):
+        return f"你还喜欢{value or title}吗？"
+    if attr.startswith("dislike_"):
+        return f"你现在还不喜欢{value or title}吗？"
+    if attr in ("current_focus", "current_goal"):
+        return f"关于\"{value or title}\"，这个目标现在还在推进吗？"
+    return f"关于\"{title}\"，现在情况还一样吗？"
+
+
+def get_stale_for_challenge(
+    *,
+    user_code: Optional[str] = None,
+    limit: int = 5,
+    min_days_since_recall: int = 30,
+    memory_types: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    resolved_user = _resolve_user(user_code)
+    conditions = [
+        "user_code = %s",
+        "lifecycle_state = ANY(%s)",
+        "is_explicit = false",
+        "(last_recalled_at IS NULL OR last_recalled_at < now() - (%s || ' days')::interval)",
+        "deleted_at IS NULL",
+        "status != 'archived'",
+    ]
+    params: List[Any] = [
+        resolved_user,
+        ["cold", "stale"],
+        str(min_days_since_recall),
+    ]
+    if memory_types:
+        conditions.append("memory_type = ANY(%s)")
+        params.append(memory_types)
+    where_sql = " AND ".join(conditions)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT *
+            FROM memory_record
+            WHERE {where_sql}
+            ORDER BY confidence DESC, importance DESC
+            LIMIT %s
+            """,
+            params + [limit],
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+    for row in rows:
+        row["suggested_question"] = _suggested_challenge_question(row)
+    return rows
