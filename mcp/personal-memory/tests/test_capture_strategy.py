@@ -157,5 +157,71 @@ class EvidencePromotionTests(unittest.TestCase):
         ))
 
 
+class WorkingMemoryPromotionTests(unittest.TestCase):
+    def test_consolidate_calls_evidence_gate_not_bypass(self) -> None:
+        """consolidate_working_memories 必须走 evidence_supports_promotion，不能直接提升。"""
+        from unittest.mock import patch, MagicMock
+        import service.capture_cycle as cc
+
+        fake_row = {
+            "memory_key": "abc123",
+            "summary": "这周先优先排查支付模块的超时问题",
+            "source_text": "这周先优先排查支付模块的超时问题",
+            "importance": 5,
+            "id": 99,
+        }
+
+        with patch("service.capture_cycle.get_conn") as mock_conn, \
+             patch("service.capture_cycle.accumulate_evidence") as mock_acc, \
+             patch("service.capture_cycle.evidence_supports_promotion") as mock_sup, \
+             patch("service.capture_cycle.upsert_memory") as mock_upsert:
+
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.side_effect = [[], [fake_row]]
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_conn.return_value.__enter__.return_value.commit.return_value = None
+
+            mock_acc.return_value = {"occurrence_count": 1, "support_score": 0.5}
+            mock_sup.return_value = False
+
+            cc.consolidate_working_memories(user_code="LYB")
+
+            mock_acc.assert_called_once()
+            mock_upsert.assert_not_called()
+
+    def test_consolidate_promotes_when_evidence_satisfied(self) -> None:
+        from unittest.mock import patch, MagicMock
+        import service.capture_cycle as cc
+
+        fake_row = {
+            "memory_key": "def456",
+            "summary": "用户喜欢黑咖啡",
+            "source_text": "用户喜欢黑咖啡",
+            "importance": 4,
+            "id": 100,
+        }
+
+        with patch("service.capture_cycle.get_conn") as mock_conn, \
+             patch("service.capture_cycle.accumulate_evidence") as mock_acc, \
+             patch("service.capture_cycle.evidence_supports_promotion") as mock_sup, \
+             patch("service.capture_cycle.promoted_confidence") as mock_conf, \
+             patch("service.capture_cycle.upsert_memory") as mock_upsert:
+
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.side_effect = [[], [fake_row]]
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_conn.return_value.__enter__.return_value.commit.return_value = None
+
+            mock_acc.return_value = {"id": 1, "occurrence_count": 3, "support_score": 2.0}
+            mock_sup.return_value = True
+            mock_conf.return_value = 0.85
+
+            cc.consolidate_working_memories(user_code="LYB")
+
+            mock_acc.assert_called_once()
+            mock_sup.assert_called_once()
+            mock_upsert.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

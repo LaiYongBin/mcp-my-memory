@@ -260,12 +260,12 @@ def consolidate_working_memories(
                    max(summary) AS summary,
                    max(source_text) AS source_text,
                    max(importance) AS importance,
+                   max(id) AS id,
                    count(*) AS occurrence_count
             FROM session_state
             WHERE {where_sql}
               AND memory_key IS NOT NULL
             GROUP BY memory_key
-            HAVING count(*) >= 2
             ORDER BY count(*) DESC, max(updated_at) DESC
             """,
             params,
@@ -274,26 +274,52 @@ def consolidate_working_memories(
         conn.commit()
 
     for row in rows:
-        summary = str(row["summary"] or "").strip()
-        if not summary or _looks_short_term(summary):
+        summary = str(row.get("summary") or "").strip()
+        if not summary:
             continue
-        promoted.append(
+        content_hash = hashlib.md5(summary.encode()).hexdigest()[:8]
+        pseudo_item = {
+            "subject": "user",
+            "attribute": "working_memory",
+            "value": summary,
+            "claim": str(row.get("source_text") or summary),
+            "category": "current_goal",
+            "evidence_type": "observed",
+            "time_scope": "short_term",
+            "action": "long_term",
+            "confidence": 0.6,
+            "conflict_scope": f"user.working_memory.{content_hash}",
+            "tags": [],
+        }
+        evidence = accumulate_evidence(user_code=resolved_user, item=pseudo_item)
+        if evidence and evidence_supports_promotion(pseudo_item, evidence):
             upsert_memory(
                 {
                     "user_code": resolved_user,
-                    "memory_type": "context",
-                    "title": "沉淀上下文: " + summary[:60],
+                    "memory_type": "fact",
+                    "title": summary[:80],
                     "content": summary,
                     "summary": summary[:240],
                     "tags": ["working-memory", "auto-consolidated"],
                     "source_type": SOURCE_CONSOLIDATION,
-                    "confidence": 0.7,
+                    "confidence": promoted_confidence(pseudo_item, evidence),
                     "importance": int(row.get("importance") or 4),
                     "status": STATUS_ACTIVE,
                     "is_explicit": False,
+                    "subject_key": "user",
+                    "attribute_key": "working_memory",
+                    "value_text": summary[:500],
                 }
             )
-        )
+            promoted.append({"summary": summary})
+            # 标记已提升
+            with get_conn() as conn2, conn2.cursor() as cur2:
+                cur2.execute(
+                    "UPDATE session_state SET status = %s WHERE id = %s",
+                    (STATUS_ARCHIVED, int(row["id"])),
+                )
+                conn2.commit()
+        # 不满足则保留在 session_state，等待下次积累
 
     return {
         "archived_count": archived,
