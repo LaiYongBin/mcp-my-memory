@@ -924,6 +924,8 @@ def create_server(
         updated_before: Optional[str] = None,
         valid_at: Optional[str] = None,
         sentiment: Optional[str] = None,
+        subject_key: Optional[str] = None,
+        attribute_key: Optional[str] = None,
         limit: int = 10,
     ) -> ItemListResult:
         items = search_memories(
@@ -941,6 +943,8 @@ def create_server(
             updated_before=updated_before,
             valid_at=valid_at,
             sentiment=sentiment,
+            subject_key=subject_key,
+            attribute_key=attribute_key,
             limit=limit,
         )
         return ItemListResult(items=items, count=len(items))

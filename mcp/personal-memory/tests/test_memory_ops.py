@@ -428,5 +428,23 @@ class UpsertMemoryDeferEmbeddingTests(unittest.TestCase):
             mock_embed.assert_not_called()
 
 
+class SearchMemoriesFilterTests(unittest.TestCase):
+    def test_search_memories_accepts_subject_key_param(self):
+        """search_memories 应接受 subject_key 过滤参数。"""
+        import inspect
+        from service.memory_ops import search_memories
+        sig = inspect.signature(search_memories)
+        self.assertIn("subject_key", sig.parameters,
+                      "search_memories 应支持 subject_key 参数")
+
+    def test_search_memories_accepts_attribute_key_param(self):
+        """search_memories 应接受 attribute_key 过滤参数。"""
+        import inspect
+        from service.memory_ops import search_memories
+        sig = inspect.signature(search_memories)
+        self.assertIn("attribute_key", sig.parameters,
+                      "search_memories 应支持 attribute_key 参数")
+
+
 if __name__ == "__main__":
     unittest.main()

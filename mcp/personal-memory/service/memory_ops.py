@@ -311,6 +311,8 @@ def search_memories(
     updated_before: Optional[str] = None,
     valid_at: Optional[str] = None,
     sentiment: Optional[str] = None,
+    subject_key: Optional[str] = None,
+    attribute_key: Optional[str] = None,
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
@@ -376,6 +378,12 @@ def search_memories(
     if sentiment:
         conditions.append("sentiment = %s")
         where_params.append(sentiment)
+    if subject_key:
+        conditions.append("subject_key = %s")
+        where_params.append(subject_key)
+    if attribute_key:
+        conditions.append("attribute_key = %s")
+        where_params.append(attribute_key)
 
     rank_sql = "0::float AS rank_score"
     if query.strip():
