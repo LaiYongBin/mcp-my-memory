@@ -30,6 +30,8 @@ from service.db import get_conn, get_settings
 from service.evidence import accumulate_evidence, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
 from service.memory_ops import archive_memory, list_memories_by_conflict_scope, save_review_candidate, upsert_memory
+import concurrent.futures
+from service.embeddings import refresh_memory_embedding
 
 
 TEMPORAL_HINTS = [
@@ -380,7 +382,7 @@ def _build_memory_payload_from_analysis(item: Dict[str, Any], user_code: str) ->
     }
 
 
-def resolve_analysis_memory(item: Dict[str, Any], user_code: str) -> Dict[str, Any]:
+def resolve_analysis_memory(item: Dict[str, Any], user_code: str, *, defer_embedding: bool = False) -> Dict[str, Any]:
     payload = _build_memory_payload_from_analysis(item, user_code)
     conflict_scope = str(item.get("conflict_scope") or "").strip()
     conflict_mode = str(item.get("conflict_mode") or CONFLICT_COEXIST)
@@ -399,7 +401,7 @@ def resolve_analysis_memory(item: Dict[str, Any], user_code: str) -> Dict[str, A
     )
     if exact_match:
         payload["id"] = int(exact_match["id"])
-        return {"memory": upsert_memory(payload), "resolution": "updated-existing"}
+        return {"memory": upsert_memory(payload, defer_embedding=defer_embedding), "resolution": "updated-existing"}
 
     if existing and conflict_mode == CONFLICT_REPLACE:
         archived = []
@@ -408,7 +410,7 @@ def resolve_analysis_memory(item: Dict[str, Any], user_code: str) -> Dict[str, A
             if archived_row:
                 archived.append(archived_row)
         return {
-            "memory": upsert_memory(payload),
+            "memory": upsert_memory(payload, defer_embedding=defer_embedding),
             "resolution": "replaced-conflicting",
             "archived": archived,
         }
@@ -416,7 +418,7 @@ def resolve_analysis_memory(item: Dict[str, Any], user_code: str) -> Dict[str, A
     if existing and conflict_mode == CONFLICT_REVIEW:
         return {"memory": None, "resolution": "needs-review", "existing": existing}
 
-    return {"memory": upsert_memory(payload), "resolution": "inserted-new"}
+    return {"memory": upsert_memory(payload, defer_embedding=defer_embedding), "resolution": "inserted-new"}
 
 
 def run_capture_cycle(
@@ -490,7 +492,7 @@ def run_capture_cycle(
             if evidence_supports_promotion(item, evidence):
                 promoted_item = item.copy()
                 promoted_item["confidence"] = promoted_confidence(item, evidence)
-                resolved = resolve_analysis_memory(promoted_item, resolved_user)
+                resolved = resolve_analysis_memory(promoted_item, resolved_user, defer_embedding=True)
                 memory_payload = resolved.get("memory")
                 if memory_payload:
                     persisted.append(resolved)
@@ -538,7 +540,7 @@ def run_capture_cycle(
         payload = candidate.copy()
         payload["user_code"] = resolved_user
         if should_auto_persist(candidate):
-            persisted.append(upsert_memory(payload))
+            persisted.append(upsert_memory(payload, defer_embedding=True))
         else:
             pending_candidates.append(candidate)
 
@@ -574,6 +576,29 @@ def run_capture_cycle(
                 importance=int(candidate["importance"]),
             )
         )
+
+    # 批量并发 embedding（所有 upsert 已用 defer_embedding=True，在此统一发起）
+    _embedding_tasks = []  # [(memory_id, resolved_user, text)]
+    for _item in persisted:
+        # persisted 中有两种元素：
+        # - resolve_analysis_memory 返回的 {"memory": {...}, "resolution": "..."}
+        # - upsert_memory 直接返回的 memory dict
+        _mem = _item.get("memory") if isinstance(_item, dict) and "memory" in _item else _item
+        if isinstance(_mem, dict) and _mem.get("id"):
+            _text = (_mem.get("summary") or _mem.get("content") or _mem.get("title") or "").strip()
+            if _text:
+                _embedding_tasks.append((int(_mem["id"]), resolved_user, _text))
+    if _embedding_tasks:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(_embedding_tasks), 5)) as _pool:
+            _futures = [
+                _pool.submit(refresh_memory_embedding, _mid, _uc, _txt)
+                for _mid, _uc, _txt in _embedding_tasks
+            ]
+            for _f in concurrent.futures.as_completed(_futures):
+                try:
+                    _f.result()
+                except Exception:
+                    pass
 
     consolidation = None
     if consolidate:

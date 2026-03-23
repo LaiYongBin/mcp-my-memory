@@ -539,7 +539,7 @@ def search_memories_by_time_range(
         return [apply_memory_governance(dict(row)) for row in cur.fetchall()]
 
 
-def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
+def upsert_memory(payload: Dict[str, Any], *, defer_embedding: bool = False) -> Dict[str, Any]:
     resolved_user = _resolve_user(payload.get("user_code"))
     normalized_taxonomy = _normalize_memory_taxonomy(
         memory_type=payload.get("memory_type"),
@@ -682,12 +682,13 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
         row = cur.fetchone()
         conn.commit()
     result = apply_memory_governance(dict(row)) if row else {}
-    try:
-        embedding_source = (result.get("summary") or result.get("content") or result.get("title") or "").strip()
-        if embedding_source:
-            refresh_memory_embedding(int(row["id"]), resolved_user, embedding_source)
-    except Exception:
-        pass
+    if not defer_embedding:
+        try:
+            embedding_source = (result.get("summary") or result.get("content") or result.get("title") or "").strip()
+            if embedding_source:
+                refresh_memory_embedding(int(row["id"]), resolved_user, embedding_source)
+        except Exception:
+            pass
     try:
         sync_entity_graph_for_memory(result)
     except Exception:
