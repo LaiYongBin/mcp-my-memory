@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import time as _time_module
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -76,6 +77,26 @@ from service.schemas import (
 
 # B2: per-session turn counter (process-local, resets on restart)
 _session_turn_counts: Dict[str, int] = {}
+
+
+# Task 5: 两跳推理进程内缓存（TTL=300s）
+_two_hop_cache: Dict[tuple, tuple] = {}
+_TWO_HOP_TTL = 300
+
+
+def _cached_two_hop(source_keys: List[str], user_code: Optional[str]) -> List[Dict]:
+    """带 TTL 缓存的两跳推理查询。"""
+    key = (frozenset(source_keys), user_code or "")
+    cached = _two_hop_cache.get(key)
+    if cached and _time_module.monotonic() < cached[1]:
+        return cached[0]
+    result = find_two_hop_connections(
+        source_subject_keys=source_keys,
+        exclude_subject_keys=source_keys,
+        user_code=user_code,
+    )
+    _two_hop_cache[key] = (result, _time_module.monotonic() + _TWO_HOP_TTL)
+    return result
 
 
 def _increment_turn_count(session_key: str) -> int:
@@ -686,11 +707,7 @@ def _build_recall_result(
     source_keys = [e["subject_key"] for e in related_entities if e.get("subject_key")]
     exclude_keys = [e["subject_key"] for e in related_entities if e.get("subject_key")]
     if source_keys:
-        two_hop_rows = find_two_hop_connections(
-            source_subject_keys=source_keys,
-            exclude_subject_keys=exclude_keys,
-            user_code=user_code,
-        )
+        two_hop_rows = _cached_two_hop(source_keys, user_code)
         for row in two_hop_rows:
             related_entities.append({
                 **row,
