@@ -1247,7 +1247,7 @@ def create_server(
         )
         return ItemListResult(items=items, count=len(items))
 
-    @server.tool("get_memory_timeline")
+    @server.tool(name="get_memory_timeline", structured_output=True)
     async def get_memory_timeline_tool(
         user_code: Optional[str] = None,
         memory_id: Optional[int] = None,

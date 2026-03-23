@@ -1111,10 +1111,8 @@ def _fetch_where_supersedes_id(user_code: str, memory_id: int) -> Optional[Dict[
     """查找取代了指定记忆的记录（若有多条，取最新的一条）。"""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """
-            SELECT id, user_code, memory_type, title, content, subject_key, attribute_key,
-                   value_text, conflict_scope, confidence, status, supersedes_id,
-                   conflict_with_id, updated_at, created_at
+            f"""
+            SELECT {MEMORY_SELECT_COLUMNS}
             FROM memory_record
             WHERE supersedes_id = %s AND user_code = %s
             ORDER BY updated_at DESC
@@ -1123,7 +1121,7 @@ def _fetch_where_supersedes_id(user_code: str, memory_id: int) -> Optional[Dict[
             (memory_id, user_code),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        return apply_memory_governance(dict(row)) if row else None
 
 
 def get_memory_timeline(
