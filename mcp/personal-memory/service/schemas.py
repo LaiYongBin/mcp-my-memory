@@ -318,3 +318,9 @@ class RecallResult(MCPResultBase):
     recommended_response_plan: RecommendedResponsePlan = Field(
         default_factory=RecommendedResponsePlan
     )
+
+
+class ExportResult(MCPResultBase):
+    records: List[Dict[str, Any]] = Field(default_factory=list)
+    export_count: int = 0
+    sensitivity_levels_included: List[str] = Field(default_factory=list)

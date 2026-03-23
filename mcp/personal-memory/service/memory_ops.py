@@ -1287,3 +1287,48 @@ def fetch_source_turns(source_refs: List[str]) -> Dict[str, Dict]:
             if row:
                 results[ref] = dict(row)
     return results
+
+
+def export_memory_records(
+    *,
+    user_code: Optional[str] = None,
+    sensitivity_levels: Optional[List[str]] = None,
+    format: str = "json",
+    include_archived: bool = False,
+    memory_types: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    resolved_user = _resolve_user(user_code)
+    levels = sensitivity_levels or ["public", "normal"]
+    conditions = [
+        "user_code = %s",
+        "COALESCE(disclosure_policy, 'normal') != 'internal_only'",
+        "sensitivity_level = ANY(%s)",
+        "deleted_at IS NULL",
+    ]
+    params: List[Any] = [resolved_user, levels]
+    if not include_archived:
+        conditions.append("status != 'archived'")
+    if memory_types:
+        conditions.append("memory_type = ANY(%s)")
+        params.append(memory_types)
+    where_sql = " AND ".join(conditions)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT id, user_code, memory_type, title, content, summary, tags,
+                   source_type, source_ref, confidence, importance, status,
+                   is_explicit, subject_key, attribute_key, value_text,
+                   sensitivity_level, disclosure_policy,
+                   valid_from, valid_to, created_at, updated_at
+            FROM memory_record
+            WHERE {where_sql}
+            ORDER BY updated_at DESC
+            """,
+            params,
+        )
+        records = [dict(row) for row in cur.fetchall()]
+    return {
+        "records": records,
+        "export_count": len(records),
+        "sensitivity_levels_included": levels,
+    }

@@ -159,5 +159,44 @@ class FetchSourceTurnsTests(unittest.TestCase):
         self.assertEqual({}, result)
 
 
+class ExportMemoriesTests(unittest.TestCase):
+    def test_export_result_schema_exists(self) -> None:
+        from service.schemas import ExportResult
+        result = ExportResult(
+            records=[{"id": 1}],
+            export_count=1,
+            sensitivity_levels_included=["public"],
+        )
+        self.assertEqual(1, result.export_count)
+
+    def test_internal_only_excluded(self) -> None:
+        """disclosure_policy='internal_only' 的记忆不应出现在导出结果中。"""
+        from unittest.mock import patch, MagicMock
+        from service.memory_ops import export_memory_records
+
+        with patch("service.memory_ops.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                {"id": 1, "disclosure_policy": "normal", "sensitivity_level": "normal", "title": "正常记忆"}
+            ]
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            result = export_memory_records(user_code="LYB")
+            self.assertEqual(1, len(result["records"]))
+
+    def test_null_disclosure_policy_not_excluded(self) -> None:
+        """disclosure_policy IS NULL 的记忆（视为 normal）应被包含。"""
+        from unittest.mock import patch, MagicMock
+        from service.memory_ops import export_memory_records
+
+        with patch("service.memory_ops.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                {"id": 2, "disclosure_policy": None, "sensitivity_level": "normal", "title": "无策略记忆"}
+            ]
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            result = export_memory_records(user_code="LYB")
+            self.assertEqual(1, len(result["records"]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,7 @@ from service.entity_memory import summarize_entities_from_memories
 from service.memory_ops import (
     archive_memory,
     delete_memory as delete_memory_row,
+    export_memory_records,
     fetch_source_turns,
     get_memory_timeline,
     get_stale_for_challenge,
@@ -57,6 +58,7 @@ from service.schemas import (
     CaptureTurnResult,
     ContextMutationResult,
     DomainMutationResult,
+    ExportResult,
     ItemListResult,
     MaintenanceResult,
     MemoryMutationResult,
@@ -1274,6 +1276,23 @@ def create_server(
             limit=limit,
         )
         return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="export_memories", structured_output=True)
+    async def export_memories_tool(
+        user_code: Optional[str] = None,
+        sensitivity_levels: Optional[List[str]] = None,
+        format: str = "json",
+        include_archived: bool = False,
+        memory_types: Optional[List[str]] = None,
+    ) -> ExportResult:
+        result = export_memory_records(
+            user_code=user_code,
+            sensitivity_levels=sensitivity_levels,
+            format=format,
+            include_archived=include_archived,
+            memory_types=memory_types,
+        )
+        return ExportResult(**result)
 
     return server
 
