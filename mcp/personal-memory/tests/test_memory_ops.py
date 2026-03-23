@@ -279,5 +279,19 @@ class RevertMemoryToVersionTests(unittest.TestCase):
         self.assertTrue(callable(revert_memory_to_version))
 
 
+class TaxonomyNormalizeCacheTests(unittest.TestCase):
+    def test_lookup_domain_value_is_cached(self):
+        """lookup_domain_value 应使用 lru_cache，相同参数不重复查库。"""
+        from service.domain_registry import lookup_domain_value
+        self.assertTrue(hasattr(lookup_domain_value, "cache_info"),
+                        "lookup_domain_value 应具有 lru_cache 的 cache_info 属性")
+
+    def test_lookup_domain_alias_is_cached(self):
+        """lookup_domain_alias 应使用 lru_cache，相同参数不重复查库。"""
+        from service.domain_registry import lookup_domain_alias
+        self.assertTrue(hasattr(lookup_domain_alias, "cache_info"),
+                        "lookup_domain_alias 应具有 lru_cache 的 cache_info 属性")
+
+
 if __name__ == "__main__":
     unittest.main()

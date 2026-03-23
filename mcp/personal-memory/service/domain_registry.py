@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from psycopg.types.json import Json
@@ -52,8 +53,9 @@ def get_domain_definition(domain_name: str) -> Optional[Dict[str, Any]]:
         return dict(row) if row else None
 
 
+@lru_cache(maxsize=512)
 def lookup_domain_value(
-    domain_name: str, value_key: str, *, include_archived: bool = False
+    domain_name: str, value_key: str, include_archived: bool = False
 ) -> Optional[Dict[str, Any]]:
     conditions = ["domain_name = %s", "value_key = %s"]
     params: List[Any] = [domain_name, value_key]
@@ -74,6 +76,7 @@ def lookup_domain_value(
         return dict(row) if row else None
 
 
+@lru_cache(maxsize=512)
 def lookup_domain_alias(domain_name: str, alias_key: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
