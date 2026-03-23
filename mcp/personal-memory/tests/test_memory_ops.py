@@ -454,5 +454,38 @@ class GetDomainDefinitionCacheTests(unittest.TestCase):
                         "get_domain_definition 应具有 lru_cache 的 cache_info 属性")
 
 
+class ArchiveMemoryEfficiencyTests(unittest.TestCase):
+    def test_archive_memory_does_not_call_get_memory(self):
+        """archive_memory 应只执行一次 SQL（UPDATE RETURNING），不再调用 get_memory。"""
+        from service import memory_ops
+        from unittest.mock import patch, MagicMock
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor = MagicMock(return_value=mock_cur)
+        mock_cur.fetchone.return_value = {
+            "id": 1, "user_code": "test", "title": "t", "content": "c",
+            "memory_type": "fact", "category": None, "summary": None,
+            "tags": [], "source_type": "manual", "source_ref": None,
+            "confidence": 0.7, "importance": 5, "status": "archived",
+            "is_explicit": False, "valid_from": None, "valid_to": None,
+            "subject_key": None, "related_subject_key": None, "attribute_key": None,
+            "value_text": None, "conflict_scope": None, "sensitivity_level": "normal",
+            "disclosure_policy": None, "lifecycle_state": "active", "stability_score": 0.5,
+            "sentiment": None, "conflict_with_id": None, "supersedes_id": None,
+            "created_at": None, "updated_at": None, "last_recalled_at": None,
+            "deleted_at": None, "recall_count": 0,
+        }
+        with patch("service.memory_ops.get_conn", return_value=mock_conn), \
+             patch("service.memory_ops._resolve_user", return_value="test"), \
+             patch("service.memory_ops.get_memory") as mock_get_memory, \
+             patch("service.memory_ops.refresh_entity_graph_for_subject"):
+            memory_ops.archive_memory(1, "test")
+            mock_get_memory.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

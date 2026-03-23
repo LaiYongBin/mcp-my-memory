@@ -871,14 +871,13 @@ def promote_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def archive_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
-    existing = get_memory(memory_id, resolved_user)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             UPDATE memory_record
             SET status = %s, updated_at = now()
             WHERE id = %s AND user_code = %s AND deleted_at IS NULL
-            RETURNING id
+            RETURNING {MEMORY_SELECT_COLUMNS}
             """,
             (STATUS_ARCHIVED, memory_id, resolved_user),
         )
@@ -886,11 +885,11 @@ def archive_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[
         conn.commit()
     if not row:
         return None
-    result = get_memory(int(row["id"]), resolved_user)
+    result = apply_memory_governance(dict(row))
     try:
         refresh_entity_graph_for_subject(
             user_code=resolved_user,
-            subject_key=(existing or result or {}).get("subject_key"),
+            subject_key=row["subject_key"],
         )
     except Exception:
         pass
@@ -899,14 +898,13 @@ def archive_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[
 
 def delete_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
-    existing = get_memory(memory_id, resolved_user)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             UPDATE memory_record
             SET status = %s, deleted_at = now(), updated_at = now()
             WHERE id = %s AND user_code = %s AND deleted_at IS NULL
-            RETURNING id
+            RETURNING {MEMORY_SELECT_COLUMNS}
             """,
             (STATUS_DELETED, memory_id, resolved_user),
         )
@@ -914,11 +912,11 @@ def delete_memory(memory_id: int, user_code: Optional[str] = None) -> Optional[D
         conn.commit()
     if not row:
         return None
-    result = get_memory(int(row["id"]), resolved_user)
+    result = apply_memory_governance(dict(row))
     try:
         refresh_entity_graph_for_subject(
             user_code=resolved_user,
-            subject_key=(existing or result or {}).get("subject_key"),
+            subject_key=row["subject_key"],
         )
     except Exception:
         pass
