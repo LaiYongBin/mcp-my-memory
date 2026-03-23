@@ -1226,6 +1226,40 @@ def get_memory_timeline(
     return result[:limit]
 
 
+def revert_memory_to_version(
+    *,
+    memory_id: int,
+    target_version_id: int,
+    user_code: Optional[str] = None,
+) -> Dict[str, Any]:
+    """将记忆回滚到指定历史版本的内容。"""
+    resolved_user = _resolve_user(user_code)
+    current = get_memory(memory_id, resolved_user)
+    target = get_memory(target_version_id, resolved_user)
+    if not current:
+        return {"error": "memory not found"}
+    if not target:
+        return {"error": "target version not found"}
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE memory_record
+               SET title = %s, content = %s, summary = %s,
+                   value_text = %s, tags = %s::jsonb,
+                   confidence = %s, importance = %s,
+                   supersedes_id = %s, updated_at = now()
+               WHERE id = %s AND user_code = %s""",
+            (
+                target["title"], target["content"], target.get("summary"),
+                target.get("value_text"), json.dumps(list(target.get("tags") or [])),
+                target.get("confidence"), target.get("importance"),
+                target_version_id,
+                memory_id, resolved_user,
+            ),
+        )
+        conn.commit()
+    return get_memory(memory_id, resolved_user) or {}
+
+
 def get_stale_for_challenge(
     *,
     user_code: Optional[str] = None,

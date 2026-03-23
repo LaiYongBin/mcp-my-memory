@@ -259,5 +259,11 @@ class MemoryReportTests(unittest.TestCase):
             self.assertIn("stale_count", result)
 
 
+class RevertMemoryToVersionTests(unittest.TestCase):
+    def test_revert_memory_to_version_exists(self):
+        from service.memory_ops import revert_memory_to_version
+        self.assertTrue(callable(revert_memory_to_version))
+
+
 if __name__ == "__main__":
     unittest.main()

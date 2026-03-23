@@ -55,6 +55,7 @@ from service.memory_ops import (
     merge_duplicate_memories,
     search_memories,
     search_memories_by_time_range,
+    revert_memory_to_version,
     submit_challenge_answer,
     upsert_memory,
 )
@@ -1417,6 +1418,21 @@ def create_server(
             user_code=user_code,
             confirmed=confirmed,
             answer=answer,
+        )
+        if "error" in result:
+            raise ValueError(result["error"])
+        return MemoryMutationResult(**result)
+
+    @server.tool(name="revert_memory_to_version", structured_output=True)
+    def revert_memory_to_version_tool(
+        memory_id: int,
+        target_version_id: int,
+        user_code: Optional[str] = None,
+    ) -> MemoryMutationResult:
+        result = revert_memory_to_version(
+            memory_id=memory_id,
+            target_version_id=target_version_id,
+            user_code=user_code,
         )
         if "error" in result:
             raise ValueError(result["error"])
