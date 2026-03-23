@@ -416,6 +416,40 @@ def rebuild_entity_graph(*, user_code: Optional[str] = None, force: bool = False
     }
 
 
+def update_entity_profile(
+    *,
+    subject_key: str,
+    user_code: Optional[str] = None,
+    display_name: Optional[str] = None,
+    relation_type: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """手动更新实体档案的可覆盖字段。只更新传入的非 None 字段。"""
+    resolved_user = _resolve_user(user_code)
+    updates: Dict[str, Any] = {}
+    if display_name is not None:
+        updates["display_name"] = display_name
+    if relation_type is not None:
+        updates["relation_type"] = relation_type
+    if not updates:
+        return None
+    set_clauses = ", ".join(f"{k} = %s" for k in updates)
+    params = list(updates.values()) + [subject_key, resolved_user]
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            UPDATE entity_profile
+            SET {set_clauses}, updated_at = now()
+            WHERE subject_key = %s AND user_code = %s
+            RETURNING subject_key, user_code, display_name, relation_type,
+                      status, created_at, updated_at
+            """,
+            params,
+        )
+        row = cur.fetchone()
+        conn.commit()
+    return dict(row) if row else None
+
+
 def search_entities(
     *,
     query: str = "",

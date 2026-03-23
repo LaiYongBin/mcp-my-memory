@@ -40,6 +40,7 @@ from service.entity_graph import (
     rebuild_entity_graph,
     search_entities,
     search_entity_relationships,
+    update_entity_profile,
 )
 from service.entity_memory import summarize_entities_from_memories
 from service.memory_ops import (
@@ -1121,6 +1122,24 @@ def create_server(
         result = rebuild_entity_graph(user_code=user_code, force=force)
         subject_keys = [{"subject_key": value} for value in list(result.get("subject_keys") or [])]
         return ItemListResult(items=subject_keys, count=int(result.get("profile_count") or 0))
+
+    @server.tool(name="update_entity_profile", structured_output=True)
+    def update_entity_profile_tool(
+        subject_key: str,
+        user_code: Optional[str] = None,
+        display_name: Optional[str] = None,
+        summary: Optional[str] = None,
+        relation_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        result = update_entity_profile(
+            subject_key=subject_key,
+            user_code=user_code,
+            display_name=display_name,
+            relation_type=relation_type,
+        )
+        if not result:
+            raise ValueError(f"entity_profile for '{subject_key}' not found or no fields to update")
+        return result
 
     @server.tool(name="search_context", structured_output=True)
     def search_context_tool(
