@@ -1355,3 +1355,13 @@ class ToolOffsetParamTests(unittest.TestCase):
         self.assertIsNotNone(tool)
         params = set(tool.parameters.get("properties", {}).keys())
         self.assertIn("offset", params, "search_entities 工具应有 offset 参数")
+
+
+class ContextSyncLoggingTests(unittest.TestCase):
+    def test_execute_capture_turn_adds_done_callback(self):
+        """_execute_capture_turn 应给 fire-and-forget future 添加 done_callback 以记录异常。"""
+        import inspect
+        from service import mcp_server
+        source = inspect.getsource(mcp_server._execute_capture_turn)
+        self.assertIn("add_done_callback", source,
+                      "_execute_capture_turn 应对 future 添加 done_callback 记录异常")

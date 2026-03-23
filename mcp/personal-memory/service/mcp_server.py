@@ -878,8 +878,13 @@ def _execute_capture_turn(
         consolidate=consolidate,
     )
     if sync_context:
-        # fire-and-forget：将 LLM 摘要任务提交到后台线程，不等待结果
-        _context_sync_executor.submit(
+        def _on_sync_done(fut: concurrent.futures.Future) -> None:
+            exc = fut.exception()
+            if exc:
+                logging.getLogger(__name__).warning(
+                    "context sync background task failed: %s", exc, exc_info=exc
+                )
+        fut = _context_sync_executor.submit(
             sync_session_context,
             session_key=session_key,
             turns=None,
@@ -888,6 +893,7 @@ def _execute_capture_turn(
             source_ref=source_ref,
             extract_memory=False,
         )
+        fut.add_done_callback(_on_sync_done)
     return CaptureTurnResult(capture=capture, context=None)
 
 
