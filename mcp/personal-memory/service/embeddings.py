@@ -57,6 +57,17 @@ def build_ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
+# 模块级 SSL context 缓存，避免每次 generate_embedding 重复创建
+_ssl_context_cache: Optional["ssl.SSLContext"] = None
+
+
+def _get_ssl_context() -> "ssl.SSLContext":
+    global _ssl_context_cache
+    if _ssl_context_cache is None:
+        _ssl_context_cache = build_ssl_context()
+    return _ssl_context_cache
+
+
 def generate_embedding(text: str) -> Optional[List[float]]:
     if not embeddings_enabled():
         return None
@@ -90,7 +101,7 @@ def generate_embedding(text: str) -> Optional[List[float]]:
         method="POST",
     )
     try:
-        with urlopen(request, timeout=20, context=build_ssl_context()) as response:
+        with urlopen(request, timeout=20, context=_get_ssl_context()) as response:
             data = json.loads(response.read().decode("utf-8"))
     except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
         return None

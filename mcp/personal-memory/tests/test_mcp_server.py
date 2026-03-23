@@ -1243,5 +1243,24 @@ class ParallelRecallTests(unittest.TestCase):
         self.assertIsNotNone(result)
 
 
+class EmbeddingSSLCacheTests(unittest.TestCase):
+    def test_build_ssl_context_called_once_across_multiple_embeddings(self):
+        """SSL context 应被缓存，多次调用只创建一次。"""
+        from service import embeddings as emb
+        import ssl
+        call_count = 0
+        original = ssl.create_default_context
+        def counting_create(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return original(*args, **kwargs)
+        # 重置缓存
+        emb._ssl_context_cache = None
+        with unittest.mock.patch("ssl.create_default_context", side_effect=counting_create):
+            emb._get_ssl_context()
+            emb._get_ssl_context()
+        self.assertEqual(call_count, 1, "SSL context 应只创建一次")
+
+
 if __name__ == "__main__":
     unittest.main()
