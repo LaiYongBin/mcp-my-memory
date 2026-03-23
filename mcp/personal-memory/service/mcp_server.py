@@ -24,7 +24,7 @@ from service.constants import (
     SOURCE_MANUAL,
     STATUS_ACTIVE,
 )
-from service.capture_cycle import list_working_memories, run_capture_cycle, _pair_turns
+from service.capture_cycle import delete_working_memory, list_working_memories, run_capture_cycle, _pair_turns
 from service.context_snapshots import (
     search_context_snapshots,
     search_recent_context_summaries,
@@ -91,6 +91,7 @@ from service.schemas import (
     TurnOrchestrationResult,
     WorkingMemory,
     WorkingMemoryList,
+    WorkingMemoryMutationResult,
 )
 
 
@@ -1554,6 +1555,17 @@ def create_server(
             memories=[WorkingMemory(**r) for r in rows],
             total=len(rows),
         )
+
+    @server.tool(name="delete_working_memory", structured_output=True)
+    def delete_working_memory_tool(
+        working_memory_id: int,
+        user_code: Optional[str] = None,
+    ) -> WorkingMemoryMutationResult:
+        """立即删除指定 working memory，无需等待过期。"""
+        result = delete_working_memory(working_memory_id=working_memory_id, user_code=user_code)
+        if not result.get("deleted"):
+            raise ValueError(result.get("error", "not found"))
+        return WorkingMemoryMutationResult(id=result["id"], record=result.get("record"))
 
     @server.tool(name="approve_review_candidate", structured_output=True)
     def approve_review_candidate_tool(

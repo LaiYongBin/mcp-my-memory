@@ -220,6 +220,30 @@ def list_working_memories(
         return [dict(row) for row in cur.fetchall()]
 
 
+def delete_working_memory(
+    *,
+    working_memory_id: int,
+    user_code: Optional[str] = None,
+) -> Dict[str, Any]:
+    """立即删除（物理删除）指定 working memory 记录。"""
+    resolved_user = _resolve_user(user_code)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM session_state
+            WHERE id = %s AND user_code = %s
+            RETURNING id, user_code, session_key, memory_key, summary, importance,
+                      expires_at, source_text, status, created_at, updated_at
+            """,
+            (working_memory_id, resolved_user),
+        )
+        row = cur.fetchone()
+        conn.commit()
+    if not row:
+        return {"deleted": False, "error": f"working_memory {working_memory_id} not found"}
+    return {"deleted": True, "id": working_memory_id, "record": dict(row)}
+
+
 def build_working_memory_candidates(user_text: str, assistant_text: str = "") -> List[Dict[str, Any]]:
     candidates: List[Dict[str, Any]] = []
     cleaned_user = _clean_text(user_text)

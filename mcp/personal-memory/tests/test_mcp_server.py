@@ -50,6 +50,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
                 "approve_review_candidate",
                 "reject_review_candidate",
                 "list_working_memories",
+                "delete_working_memory",
                 "update_entity_profile",
                 "delete_entity_profile",
                 "delete_entity_edge",
@@ -1388,3 +1389,19 @@ class EntityGraphBatchInsertTests(unittest.TestCase):
         source = inspect.getsource(entity_graph.refresh_entity_graph_for_subject)
         self.assertIn("UNNEST", source,
                       "refresh_entity_graph_for_subject 应使用 UNNEST 批量 INSERT entity_edge")
+
+
+class DeleteWorkingMemoryTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        from service import mcp_server
+        self.server = mcp_server.create_server()
+
+    @patch("service.mcp_server.delete_working_memory")
+    async def test_delete_working_memory_delegates_to_ops(self, mock_delete):
+        mock_delete.return_value = {"deleted": True, "id": 42}
+        _, structured = await self.server.call_tool(
+            "delete_working_memory",
+            {"working_memory_id": 42},
+        )
+        mock_delete.assert_called_once_with(working_memory_id=42, user_code=None)
+        self.assertTrue(structured["ok"])

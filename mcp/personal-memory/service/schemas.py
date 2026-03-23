@@ -382,3 +382,8 @@ class WorkingMemory(MCPResultBase):
 class WorkingMemoryList(MCPResultBase):
     memories: List[WorkingMemory] = Field(default_factory=list)
     total: int = 0
+
+
+class WorkingMemoryMutationResult(MCPResultBase):
+    id: int
+    record: Optional[Dict[str, Any]] = None
