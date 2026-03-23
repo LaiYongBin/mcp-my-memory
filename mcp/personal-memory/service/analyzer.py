@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import time as _time_module
 from typing import Any, Dict, List, Optional, Sequence
 from urllib.request import Request, urlopen
 
@@ -101,7 +102,22 @@ def analyzer_enabled() -> bool:
     return bool(config["api_key"] and config["model"])
 
 
+# 进程级 TTL 缓存：key=(user_code, limit), value=(result, expire_ts)
+_recent_memory_cache: dict = {}
+_RECENT_MEMORY_TTL = 60  # 秒
+
+
 def _recent_memory_context(user_code: str, limit: int = 12) -> List[Dict[str, Any]]:
+    cache_key = (user_code, limit)
+    cached = _recent_memory_cache.get(cache_key)
+    if cached and _time_module.monotonic() < cached[1]:
+        return cached[0]
+    # 缓存淘汰：超过 512 条时清理过期项
+    if len(_recent_memory_cache) > 512:
+        now = _time_module.monotonic()
+        expired = [k for k, v in _recent_memory_cache.items() if v[1] < now]
+        for k in expired:
+            _recent_memory_cache.pop(k, None)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -116,7 +132,9 @@ def _recent_memory_context(user_code: str, limit: int = 12) -> List[Dict[str, An
             """,
             (user_code, STATUS_ACTIVE, limit),
         )
-        return [dict(row) for row in cur.fetchall()]
+        result = [dict(row) for row in cur.fetchall()]
+    _recent_memory_cache[cache_key] = (result, _time_module.monotonic() + _RECENT_MEMORY_TTL)
+    return result
 
 
 def _extract_json(text: str) -> str:

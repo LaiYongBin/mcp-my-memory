@@ -679,3 +679,30 @@ class PaginationTests(unittest.TestCase):
         sig = inspect.signature(search_memories_by_time_range)
         self.assertIn("offset", sig.parameters,
                       "search_memories_by_time_range 应支持 offset 参数")
+
+
+class RecentMemoryContextCacheTests(unittest.TestCase):
+    def test_recent_memory_context_is_cached(self):
+        """相同 user_code 在 TTL 内应命中缓存，不重复查库。"""
+        from service import analyzer
+        self.assertTrue(hasattr(analyzer, "_recent_memory_cache"),
+                        "_recent_memory_cache 应是模块级缓存字典")
+
+    def test_cache_returns_same_result_without_db(self):
+        from unittest.mock import patch, MagicMock
+        from service import analyzer
+        # 清空缓存
+        analyzer._recent_memory_cache.clear()
+        with patch("service.analyzer.get_conn") as mock_conn:
+            mock_cur = MagicMock()
+            mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+            mock_cur.__exit__ = MagicMock(return_value=False)
+            mock_conn.return_value.__enter__ = MagicMock(return_value=mock_conn.return_value)
+            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+            mock_conn.return_value.cursor.return_value = mock_cur
+            mock_cur.fetchall.return_value = [{"id": 1, "title": "t"}]
+            result1 = analyzer._recent_memory_context("test_user")
+            result2 = analyzer._recent_memory_context("test_user")
+            # 第二次应命中缓存，只查一次 DB
+            self.assertEqual(mock_cur.execute.call_count, 1)
+            self.assertEqual(result1, result2)
