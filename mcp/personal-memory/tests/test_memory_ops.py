@@ -51,22 +51,49 @@ class MergeDuplicateMemoriesTests(unittest.TestCase):
         self.assertEqual(0, result.merged_count)
 
     def test_dry_run_does_not_write_db(self) -> None:
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch, MagicMock, call
         from service.memory_ops import merge_duplicate_memories
 
-        with patch("service.memory_ops.get_conn") as mock_conn:
+        # _get_memories_batch 内部会调用 apply_memory_governance，直接透传即可
+        with patch("service.memory_ops.apply_memory_governance", side_effect=lambda x: x), \
+             patch("service.memory_ops.get_conn") as mock_conn:
             mock_cursor = MagicMock()
-            mock_cursor.fetchall.return_value = [
-                {"master_candidate_id": 1, "slave_candidate_id": 2, "distance": 0.05}
+            # 第一次 fetchall：find_duplicate_pairs 返回候选对
+            # 第二次 fetchall：_get_memories_batch 返回完整记忆行
+            mock_cursor.fetchall.side_effect = [
+                [{"master_candidate_id": 1, "slave_candidate_id": 2, "distance": 0.05}],
+                [
+                    {"id": 1, "confidence": 0.8, "updated_at": "2026-01-01",
+                     "content": "内容1", "tags": [], "status": "active",
+                     "user_code": "LYB", "memory_type": None, "category": None,
+                     "title": "记忆1", "summary": None, "source_type": None,
+                     "source_ref": None, "importance": 5, "is_explicit": False,
+                     "supersedes_id": None, "conflict_with_id": None,
+                     "valid_from": None, "valid_to": None, "subject_key": None,
+                     "related_subject_key": None, "attribute_key": None, "value_text": None,
+                     "conflict_scope": None, "sensitivity_level": None,
+                     "disclosure_policy": None, "lifecycle_state": None,
+                     "stability_score": None, "recall_count": 0, "last_recalled_at": None,
+                     "created_at": None, "deleted_at": None},
+                    {"id": 2, "confidence": 0.8, "updated_at": "2026-01-01",
+                     "content": "内容2", "tags": [], "status": "active",
+                     "user_code": "LYB", "memory_type": None, "category": None,
+                     "title": "记忆2", "summary": None, "source_type": None,
+                     "source_ref": None, "importance": 5, "is_explicit": False,
+                     "supersedes_id": None, "conflict_with_id": None,
+                     "valid_from": None, "valid_to": None, "subject_key": None,
+                     "related_subject_key": None, "attribute_key": None, "value_text": None,
+                     "conflict_scope": None, "sensitivity_level": None,
+                     "disclosure_policy": None, "lifecycle_state": None,
+                     "stability_score": None, "recall_count": 0, "last_recalled_at": None,
+                     "created_at": None, "deleted_at": None},
+                ],
             ]
             mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
             mock_conn.return_value.__enter__.return_value.commit.return_value = None
 
-            with patch("service.memory_ops.get_memory") as mock_get:
-                mock_get.side_effect = lambda mid, uc: {
-                    "id": mid, "confidence": 0.8, "updated_at": "2026-01-01",
-                    "content": f"内容{mid}", "tags": [], "status": "active"
-                }
+            with patch("service.memory_ops.merge_memory_pair") as mock_merge:
+                mock_merge.return_value = {"master_id": 1, "slave_id": 2, "dry_run": True}
                 result = merge_duplicate_memories(
                     user_code="LYB",
                     similarity_threshold=0.92,

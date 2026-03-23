@@ -988,6 +988,18 @@ def merge_memory_pair(
     }
 
 
+def _get_memories_batch(ids: List[int], user_code: str) -> Dict[int, Dict[str, Any]]:
+    """批量拉取记忆，返回 {id: memory_dict}。"""
+    if not ids:
+        return {}
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {MEMORY_SELECT_COLUMNS} FROM memory_record WHERE id = ANY(%s) AND user_code = %s",
+            (ids, user_code),
+        )
+        return {int(row["id"]): apply_memory_governance(dict(row)) for row in cur.fetchall()}
+
+
 def merge_duplicate_memories(
     *,
     user_code: Optional[str] = None,
@@ -1001,10 +1013,12 @@ def merge_duplicate_memories(
         similarity_threshold=similarity_threshold,
         limit=limit,
     )
+    all_ids = list({int(p["master_candidate_id"]) for p in pairs} | {int(p["slave_candidate_id"]) for p in pairs})
+    memory_map = _get_memories_batch(all_ids, resolved_user)
     valid_pairs = []
     for pair in pairs:
-        master = get_memory(int(pair["master_candidate_id"]), resolved_user)
-        slave = get_memory(int(pair["slave_candidate_id"]), resolved_user)
+        master = memory_map.get(int(pair["master_candidate_id"]))
+        slave = memory_map.get(int(pair["slave_candidate_id"]))
         if not master or not slave:
             continue
         if master.get("status") == "archived" or slave.get("status") == "archived":
