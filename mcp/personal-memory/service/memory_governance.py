@@ -182,4 +182,18 @@ def apply_memory_governance(item: Dict[str, Any]) -> Dict[str, Any]:
     governance = derive_memory_governance(payload)
     payload["sensitivity_level"] = str(payload.get("sensitivity_level") or governance["sensitivity_level"])
     payload["disclosure_policy"] = str(payload.get("disclosure_policy") or governance["disclosure_policy"])
+
+    # B4: 时效性属性 importance 衰减
+    attribute_key = str(payload.get("attribute_key") or "").lower()
+    TIME_SENSITIVE_ATTRS = ("current_goal", "current_project", "current_focus",
+                            "current_status", "short_term")
+    is_time_sensitive = any(attr in attribute_key for attr in TIME_SENSITIVE_ATTRS)
+    lifecycle_state = str(payload.get("lifecycle_state") or "")
+    if is_time_sensitive and lifecycle_state in ("stale", "cold"):
+        current_importance = int(payload.get("importance") or 5)
+        if lifecycle_state == "stale":
+            payload["importance"] = max(1, current_importance - 3)
+        else:  # cold
+            payload["importance"] = max(1, current_importance - 1)
+
     return payload

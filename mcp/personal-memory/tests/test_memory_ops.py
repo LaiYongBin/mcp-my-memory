@@ -1026,3 +1026,39 @@ class StabilityRecallMultiplierTests(unittest.TestCase):
                            "高召回次数应减缓 age_penalty，使 stability 高于无召回版本")
         self.assertGreater(score_high_recall, 0.5,
                            "高召回记忆（10次）即使 180 天后也应保持稳定（>0.5）")
+
+
+class ImportanceDecayTests(unittest.TestCase):
+    def test_stale_time_sensitive_importance_decays(self):
+        """过期的 current_goal 类属性，apply_memory_governance 应降低其 importance。"""
+        from datetime import datetime, timezone, timedelta
+        from service.memory_governance import apply_memory_governance
+        item = {
+            "id": 1, "confidence": 0.7,
+            "is_explicit": True, "recall_count": 0,
+            "attribute_key": "current_goal",
+            "importance": 8,
+            "status": "active",
+            "lifecycle_state": "stale",
+            "updated_at": (datetime.now(timezone.utc) - timedelta(days=90)).isoformat(),
+            "supersedes_id": None, "conflict_with_id": None,
+        }
+        governed = apply_memory_governance(item)
+        self.assertLess(governed["importance"], 8,
+                        "stale 状态的时效属性 importance 应被降低")
+
+    def test_stable_preference_importance_unchanged(self):
+        """稳定偏好记忆的 importance 不应被降低。"""
+        from service.memory_governance import apply_memory_governance
+        item = {
+            "id": 2, "confidence": 0.85,
+            "is_explicit": True, "recall_count": 5,
+            "attribute_key": "favorite_drink",
+            "importance": 7,
+            "status": "active",
+            "lifecycle_state": "stable",
+            "supersedes_id": None, "conflict_with_id": None,
+        }
+        governed = apply_memory_governance(item)
+        self.assertEqual(7, governed["importance"],
+                         "稳定偏好记忆的 importance 不应被修改")
