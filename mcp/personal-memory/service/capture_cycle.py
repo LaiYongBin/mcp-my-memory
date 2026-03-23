@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,8 +31,7 @@ from service.db import get_conn, get_settings
 from service.evidence import accumulate_evidence_batch, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
 from service.memory_ops import archive_memory, list_memories_by_conflict_scope, save_review_candidate, upsert_memory
-import concurrent.futures
-from service.embeddings import refresh_memory_embedding
+from service.embeddings import refresh_memories_batch, generate_embeddings_batch
 
 
 TEMPORAL_HINTS = [
@@ -130,7 +130,6 @@ def _update_turn_source_ref(turn_id: int, source_ref: str) -> None:
             )
             conn.commit()
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning("update turn source_ref failed: %s", e)
 
 
@@ -600,28 +599,20 @@ def run_capture_cycle(
             )
         )
 
-    # 批量并发 embedding（所有 upsert 已用 defer_embedding=True，在此统一发起）
-    _embedding_tasks = []  # [(memory_id, resolved_user, text)]
+    # 批量 embedding（一次 HTTP 请求替代 N 个并行请求）
+    _embedding_tasks = []
     for _item in persisted:
-        # persisted 中有两种元素：
-        # - resolve_analysis_memory 返回的 {"memory": {...}, "resolution": "..."}
-        # - upsert_memory 直接返回的 memory dict
         _mem = _item.get("memory") if isinstance(_item, dict) and "memory" in _item else _item
         if isinstance(_mem, dict) and _mem.get("id"):
             _text = (_mem.get("summary") or _mem.get("content") or _mem.get("title") or "").strip()
             if _text:
                 _embedding_tasks.append((int(_mem["id"]), resolved_user, _text))
     if _embedding_tasks:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(_embedding_tasks), 5)) as _pool:
-            _futures = [
-                _pool.submit(refresh_memory_embedding, _mid, _uc, _txt)
-                for _mid, _uc, _txt in _embedding_tasks
-            ]
-            for _f in concurrent.futures.as_completed(_futures):
-                try:
-                    _f.result()
-                except Exception:
-                    pass
+        try:
+            # 使用 generate_embeddings_batch 批量生成向量，再由 refresh_memories_batch 写库
+            refresh_memories_batch(_embedding_tasks)
+        except Exception as _e:
+            logging.getLogger(__name__).warning("batch embedding failed: %s", _e)
 
     consolidation = None
     if consolidate:

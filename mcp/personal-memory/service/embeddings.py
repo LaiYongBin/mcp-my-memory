@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import ssl
 from typing import Any, Dict, List, Optional
@@ -184,6 +185,42 @@ def refresh_memory_embedding(memory_id: int, user_code: str, chunk_text: str) ->
         )
         conn.commit()
     return True
+
+
+def refresh_memories_batch(
+    tasks: List[tuple],  # [(memory_id, user_code, chunk_text), ...]
+) -> int:
+    """批量刷新多条记忆的 embedding，返回成功写入数量。
+    tasks 格式：[(memory_id: int, user_code: str, chunk_text: str), ...]
+    """
+    if not tasks:
+        return 0
+    if not embeddings_enabled():
+        return 0
+    texts = [text for _, _, text in tasks]
+    vectors = generate_embeddings_batch(texts)
+    success = 0
+    for (memory_id, user_code, chunk_text), vector in zip(tasks, vectors):
+        if not vector:
+            continue
+        try:
+            with get_conn() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM memory_vector_chunk WHERE memory_id = %s AND user_code = %s",
+                    (memory_id, user_code),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO memory_vector_chunk (memory_id, user_code, chunk_index, chunk_text, embedding)
+                    VALUES (%s, %s, 0, %s, %s)
+                    """,
+                    (memory_id, user_code, chunk_text, vector),
+                )
+                conn.commit()
+                success += 1
+        except Exception as e:
+            logging.getLogger(__name__).warning("batch embedding write failed for %d: %s", memory_id, e)
+    return success
 
 
 def vector_search(query: str, user_code: str, limit: int = 10) -> List[Dict[str, Any]]:

@@ -922,3 +922,14 @@ class CaptureCycleEvidenceBatchTests(unittest.TestCase):
                          source, "run_capture_cycle 不应再调用逐条的 accumulate_evidence")
         self.assertIn("accumulate_evidence_batch",
                       source, "run_capture_cycle 应使用 accumulate_evidence_batch")
+
+
+class CaptureCycleBatchEmbeddingTests(unittest.TestCase):
+    def test_run_capture_cycle_uses_batch_embedding_api(self):
+        """run_capture_cycle 应使用 generate_embeddings_batch 而非逐条 refresh_memory_embedding。"""
+        import inspect
+        from service import capture_cycle
+        source = inspect.getsource(capture_cycle.run_capture_cycle)
+        self.assertIn("generate_embeddings_batch",
+                      source,
+                      "run_capture_cycle 应调用 generate_embeddings_batch 批量生成 embedding")
