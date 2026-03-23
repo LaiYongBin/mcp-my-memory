@@ -1284,6 +1284,8 @@ def create_server(
         lifecycle_states: Optional[List[str]] = None,
         memory_types: Optional[List[str]] = None,
         categories: Optional[List[str]] = None,
+        auto_archive_stale_days: int = 90,
+        auto_resolve_review_days: int = 30,
     ) -> MaintenanceResult:
         result = maintain_memory_store(
             user_code=user_code,
@@ -1293,6 +1295,8 @@ def create_server(
             lifecycle_states=lifecycle_states,
             memory_types=memory_types,
             categories=categories,
+            auto_archive_stale_days=auto_archive_stale_days,
+            auto_resolve_review_days=auto_resolve_review_days,
         )
         return MaintenanceResult(**result)
 

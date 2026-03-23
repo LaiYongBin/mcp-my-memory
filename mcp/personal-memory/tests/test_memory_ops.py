@@ -522,7 +522,8 @@ class MaintainMemoryStoreBatchTests(unittest.TestCase):
                                           "stability_score": 0.5,
                                           "sensitivity_level": "normal",
                                           "disclosure_policy": None}):
-            memory_ops.maintain_memory_store(user_code="test", dry_run=False)
+            memory_ops.maintain_memory_store(user_code="test", dry_run=False,
+                                              auto_archive_stale_days=0, auto_resolve_review_days=0)
         # 核心断言：execute 调用次数应为 2（1次 SELECT + 1次批量 UPDATE）
         # 而非 4（1次 SELECT + 3次逐条 UPDATE）
         self.assertEqual(mock_cur.execute.call_count, 2,
@@ -835,3 +836,35 @@ class SupersededMemoryConfidenceTests(unittest.TestCase):
         }
         governed = apply_memory_governance(item)
         self.assertGreaterEqual(governed["confidence"], 0.80)
+
+
+class AutoArchiveStaleTests(unittest.TestCase):
+    def test_maintain_accepts_auto_archive_stale_days(self):
+        import inspect
+        from service.memory_ops import maintain_memory_store
+        sig = inspect.signature(maintain_memory_store)
+        self.assertIn("auto_archive_stale_days", sig.parameters,
+                      "maintain_memory_store 应接受 auto_archive_stale_days 参数")
+
+    def test_maintenance_result_has_auto_archived_count(self):
+        from service.schemas import MaintenanceResult
+        result = MaintenanceResult(
+            scanned_count=5,
+            updated_count=2,
+            dry_run=False,
+            changed_ids=[1, 2],
+            lifecycle_counts={},
+            updated_memories=[],
+            filter_applied={},
+            auto_archived_count=3,
+        )
+        self.assertEqual(3, result.auto_archived_count)
+
+
+class ReviewCandidateTimeoutTests(unittest.TestCase):
+    def test_maintain_accepts_auto_resolve_review_days(self):
+        import inspect
+        from service.memory_ops import maintain_memory_store
+        sig = inspect.signature(maintain_memory_store)
+        self.assertIn("auto_resolve_review_days", sig.parameters,
+                      "maintain_memory_store 应接受 auto_resolve_review_days 参数")

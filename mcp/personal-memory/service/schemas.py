@@ -173,6 +173,7 @@ class MaintenanceResult(MCPResultBase):
     lifecycle_counts: Dict[str, int] = Field(default_factory=dict)
     updated_memories: List[Dict[str, Any]] = Field(default_factory=list)
     filter_applied: Dict[str, Any] = Field(default_factory=dict)
+    auto_archived_count: int = 0
 
 
 class TurnOrchestrationResult(MCPResultBase):

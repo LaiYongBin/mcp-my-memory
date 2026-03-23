@@ -9,6 +9,7 @@ from psycopg.types.json import Json
 
 from service.constants import (
     HYBRID_SEARCH_ENABLED,
+    LIFECYCLE_STALE,
     SOURCE_CONVERSATION,
     SOURCE_MANUAL,
     SOURCE_REVIEW_APPROVED,
@@ -766,6 +767,8 @@ def maintain_memory_store(
     lifecycle_states: Optional[List[str]] = None,
     memory_types: Optional[List[str]] = None,
     categories: Optional[List[str]] = None,
+    auto_archive_stale_days: int = 90,
+    auto_resolve_review_days: int = 30,
 ) -> Dict[str, Any]:
     resolved_user = _resolve_user(user_code)
     conditions = ["user_code = %s", "deleted_at IS NULL"]
@@ -849,6 +852,36 @@ def maintain_memory_store(
             )
         if not dry_run:
             conn.commit()
+    auto_archived_count = 0
+    if not dry_run and auto_archive_stale_days > 0:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE memory_record
+                SET status = 'archived', updated_at = now()
+                WHERE user_code = %s
+                  AND status = %s
+                  AND lifecycle_state = %s
+                  AND (last_recalled_at IS NULL OR last_recalled_at < now() - (%s * interval '1 day'))
+                  AND updated_at < now() - (%s * interval '1 day')
+                """,
+                (resolved_user, STATUS_ACTIVE, LIFECYCLE_STALE, auto_archive_stale_days, auto_archive_stale_days),
+            )
+            auto_archived_count = cur.rowcount
+            conn.commit()
+    if not dry_run and auto_resolve_review_days > 0:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE memory_candidate
+                SET status = 'auto_resolved', updated_at = now()
+                WHERE user_code = %s
+                  AND status = 'pending'
+                  AND created_at < now() - (%s * interval '1 day')
+                """,
+                (resolved_user, auto_resolve_review_days),
+            )
+            conn.commit()
     return {
         "scanned_count": len(rows),
         "updated_count": len(updates),
@@ -863,6 +896,7 @@ def maintain_memory_store(
                 "categories": categories,
             }.items() if v is not None
         },
+        "auto_archived_count": auto_archived_count,
     }
 
 
