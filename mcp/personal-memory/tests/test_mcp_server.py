@@ -1367,6 +1367,19 @@ class ContextSyncLoggingTests(unittest.TestCase):
                       "_execute_capture_turn 应对 future 添加 done_callback 记录异常")
 
 
+class RecallForResponseSessionKeyTests(unittest.TestCase):
+    def test_recall_for_response_tool_has_session_key_param(self):
+        """recall_for_response 工具应暴露 session_key 参数。"""
+        from service.mcp_server import create_server
+        server = create_server()
+        tools = {t.name: t for t in server._tool_manager.list_tools()}
+        tool = tools.get("recall_for_response")
+        self.assertIsNotNone(tool)
+        params = set(tool.parameters.get("properties", {}).keys())
+        self.assertIn("session_key", params,
+                      "recall_for_response 工具应有 session_key 参数")
+
+
 class EntityGraphBatchInsertTests(unittest.TestCase):
     def test_refresh_entity_graph_uses_unnest_not_loop(self):
         """refresh_entity_graph_for_subject 应使用 UNNEST 批量 INSERT，不应在循环中逐条 INSERT。"""

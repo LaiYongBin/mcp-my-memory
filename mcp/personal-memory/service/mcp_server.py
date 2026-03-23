@@ -683,6 +683,7 @@ def _build_recall_result(
     draft_response: Optional[str] = None,
     topic_hint: Optional[str] = None,
     user_code: Optional[str] = None,
+    session_key: Optional[str] = None,
     memory_limit: int = 3,
     context_limit: int = 3,
     recent_context_limit: int = 2,
@@ -699,11 +700,11 @@ def _build_recall_result(
         )
         f_contexts = executor.submit(
             search_context_snapshots,
-            query=query_text, user_code=user_code, snapshot_level=None, session_key=None, limit=context_limit,
+            query=query_text, user_code=user_code, snapshot_level=None, session_key=session_key, limit=context_limit,
         )
         f_recent = executor.submit(
             search_recent_context_summaries,
-            user_code=user_code, session_key=None, query="", snapshot_levels=[SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC],
+            user_code=user_code, session_key=session_key, query="", snapshot_levels=[SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC],
             recent_hours=recent_context_hours, limit=recent_context_limit,
         )
         try:
@@ -1316,6 +1317,7 @@ def create_server(
         draft_response: Optional[str] = None,
         topic_hint: Optional[str] = None,
         user_code: Optional[str] = None,
+        session_key: Optional[str] = None,
         memory_limit: int = 3,
         context_limit: int = 3,
         recent_context_limit: int = 2,
@@ -1327,6 +1329,7 @@ def create_server(
             draft_response=draft_response,
             topic_hint=topic_hint,
             user_code=user_code,
+            session_key=session_key,
             memory_limit=memory_limit,
             context_limit=context_limit,
             recent_context_limit=recent_context_limit,
@@ -1357,6 +1360,7 @@ def create_server(
             draft_response=draft_response,
             topic_hint=topic_hint,
             user_code=user_code,
+            session_key=session_key,
             memory_limit=memory_limit,
             context_limit=context_limit,
             recent_context_limit=recent_context_limit,
