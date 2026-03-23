@@ -341,3 +341,23 @@ class IngestResult(MCPResultBase):
     ingested_turns: int = 0
     created_memories: int = 0
     failed_turns: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ReviewCandidate(MCPResultBase):
+    id: int
+    user_code: str = ""
+    source_text: str = ""
+    title: str = ""
+    content: str = ""
+    memory_type: str = ""
+    reason: str = ""
+    confidence: float = 0.5
+    status: str = "pending"
+    tags: List[Any] = Field(default_factory=list)
+    created_at: Any = None
+    updated_at: Any = None
+
+
+class ReviewCandidateList(MCPResultBase):
+    candidates: List[ReviewCandidate] = Field(default_factory=list)
+    total: int = 0

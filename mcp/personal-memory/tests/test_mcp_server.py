@@ -44,6 +44,9 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
                 "batch_ingest_turns",
                 "submit_challenge_answer",
                 "revert_memory_to_version",
+                "list_review_candidates",
+                "approve_review_candidate",
+                "reject_review_candidate",
             },
             names,
         )

@@ -43,6 +43,7 @@ from service.entity_graph import (
 )
 from service.entity_memory import summarize_entities_from_memories
 from service.memory_ops import (
+    approve_review_candidate,
     archive_memory,
     delete_memory as delete_memory_row,
     export_memory_records,
@@ -50,9 +51,11 @@ from service.memory_ops import (
     generate_memory_report,
     get_memory_timeline,
     get_stale_for_challenge,
+    list_review_candidates,
     maintain_memory_store,
     mark_memories_recalled,
     merge_duplicate_memories,
+    reject_review_candidate,
     search_memories,
     search_memories_by_time_range,
     revert_memory_to_version,
@@ -75,6 +78,8 @@ from service.schemas import (
     MergeResult,
     RecallResult,
     RecommendedResponsePlan,
+    ReviewCandidate,
+    ReviewCandidateList,
     TurnOrchestrationResult,
 )
 
@@ -1408,6 +1413,37 @@ def create_server(
             created_memories=created_memories,
             failed_turns=failed,
         )
+
+    @server.tool(name="list_review_candidates", structured_output=True)
+    def list_review_candidates_tool(
+        user_code: Optional[str] = None,
+        limit: int = 20,
+    ) -> ReviewCandidateList:
+        rows = list_review_candidates(user_code=user_code, limit=limit)
+        return ReviewCandidateList(
+            candidates=[ReviewCandidate(**r) for r in rows],
+            total=len(rows),
+        )
+
+    @server.tool(name="approve_review_candidate", structured_output=True)
+    def approve_review_candidate_tool(
+        candidate_id: int,
+        user_code: Optional[str] = None,
+    ) -> MemoryMutationResult:
+        result = approve_review_candidate(candidate_id=candidate_id, user_code=user_code)
+        if not result:
+            raise ValueError(f"candidate {candidate_id} not found or already processed")
+        return MemoryMutationResult(memory=result["memory"])
+
+    @server.tool(name="reject_review_candidate", structured_output=True)
+    def reject_review_candidate_tool(
+        candidate_id: int,
+        user_code: Optional[str] = None,
+    ) -> ReviewCandidate:
+        result = reject_review_candidate(candidate_id=candidate_id, user_code=user_code)
+        if not result:
+            raise ValueError(f"candidate {candidate_id} not found or already processed")
+        return ReviewCandidate(**result)
 
     @server.tool(name="submit_challenge_answer", structured_output=True)
     def submit_challenge_answer_tool(
