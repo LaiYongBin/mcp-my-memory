@@ -446,5 +446,13 @@ class SearchMemoriesFilterTests(unittest.TestCase):
                       "search_memories 应支持 attribute_key 参数")
 
 
+class GetDomainDefinitionCacheTests(unittest.TestCase):
+    def test_get_domain_definition_is_cached(self):
+        """get_domain_definition 应使用 lru_cache，相同参数不重复查库。"""
+        from service.domain_registry import get_domain_definition
+        self.assertTrue(hasattr(get_domain_definition, "cache_info"),
+                        "get_domain_definition 应具有 lru_cache 的 cache_info 属性")
+
+
 if __name__ == "__main__":
     unittest.main()

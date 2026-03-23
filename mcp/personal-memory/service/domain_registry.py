@@ -38,6 +38,7 @@ def normalize_domain_key(value: str) -> str:
     return cleaned
 
 
+@lru_cache(maxsize=64)
 def get_domain_definition(domain_name: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
