@@ -373,27 +373,28 @@ def rebuild_entity_graph(*, user_code: Optional[str] = None, force: bool = False
             (resolved_user, *since_params, resolved_user, *since_params),
         )
         subject_keys = [str(row["subject_key"]) for row in cur.fetchall()]
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            DELETE FROM entity_edge
-            WHERE user_code = %s
-              AND (
-                  source_subject_key <> ALL(%s)
-                  OR target_subject_key <> ALL(%s)
-              )
-            """,
-            (resolved_user, subject_keys or [""], subject_keys or [""]),
-        )
-        cur.execute(
-            """
-            DELETE FROM entity_profile
-            WHERE user_code = %s
-              AND subject_key <> ALL(%s)
-            """,
-            (resolved_user, subject_keys or [""]),
-        )
-        conn.commit()
+    if since is None:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM entity_edge
+                WHERE user_code = %s
+                  AND (
+                      source_subject_key <> ALL(%s)
+                      OR target_subject_key <> ALL(%s)
+                  )
+                """,
+                (resolved_user, subject_keys or [""], subject_keys or [""]),
+            )
+            cur.execute(
+                """
+                DELETE FROM entity_profile
+                WHERE user_code = %s
+                  AND subject_key <> ALL(%s)
+                """,
+                (resolved_user, subject_keys or [""]),
+            )
+            conn.commit()
     for subject_key in subject_keys:
         refresh_entity_graph_for_subject(user_code=resolved_user, subject_key=subject_key)
     with get_conn() as conn, conn.cursor() as cur:
