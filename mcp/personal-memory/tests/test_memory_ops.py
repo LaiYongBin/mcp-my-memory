@@ -127,6 +127,12 @@ class StaleMemoryChallengeTests(unittest.TestCase):
         self.assertIn("某个记忆", q)
 
 
+class SubmitChallengeAnswerTests(unittest.TestCase):
+    def test_submit_challenge_answer_exists(self):
+        from service.memory_ops import submit_challenge_answer
+        self.assertTrue(callable(submit_challenge_answer))
+
+
 class MemoryTimelineTests(unittest.TestCase):
     def test_get_memory_timeline_exists(self) -> None:
         from service.memory_ops import get_memory_timeline

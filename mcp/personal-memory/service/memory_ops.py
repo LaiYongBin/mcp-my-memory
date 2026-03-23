@@ -1269,6 +1269,41 @@ def get_stale_for_challenge(
     return rows
 
 
+def submit_challenge_answer(
+    *,
+    memory_id: int,
+    user_code: Optional[str] = None,
+    confirmed: bool,
+    answer: Optional[str] = None,
+) -> Dict[str, Any]:
+    """响应记忆挑战：confirmed=True 时更新内容并重置生命周期，False 时归档。"""
+    resolved_user = _resolve_user(user_code)
+    memory = get_memory(memory_id, resolved_user)
+    if not memory:
+        return {"error": "memory not found"}
+    with get_conn() as conn, conn.cursor() as cur:
+        if confirmed:
+            cur.execute(
+                """UPDATE memory_record
+                   SET lifecycle_state = 'active',
+                       last_recalled_at = now(),
+                       value_text = COALESCE(%s, value_text),
+                       content = CASE WHEN %s IS NOT NULL
+                                 THEN content || E'\n[验证更新] ' || %s
+                                 ELSE content END,
+                       updated_at = now()
+                   WHERE id = %s AND user_code = %s""",
+                (answer, answer, answer, memory_id, resolved_user),
+            )
+        else:
+            cur.execute(
+                "UPDATE memory_record SET status = 'archived', updated_at = now() WHERE id = %s AND user_code = %s",
+                (memory_id, resolved_user),
+            )
+        conn.commit()
+    return get_memory(memory_id, resolved_user) or {}
+
+
 def fetch_source_turns(source_refs: List[str]) -> Dict[str, Dict]:
     """批量查询 conversation_turn，返回 {source_ref: turn_row}。"""
     if not source_refs:
