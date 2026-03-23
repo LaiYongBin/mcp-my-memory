@@ -706,3 +706,47 @@ class RecentMemoryContextCacheTests(unittest.TestCase):
             # 第二次应命中缓存，只查一次 DB
             self.assertEqual(mock_cur.execute.call_count, 1)
             self.assertEqual(result1, result2)
+
+
+class AccumulateEvidenceBatchTests(unittest.TestCase):
+    def test_accumulate_evidence_batch_exists(self):
+        from service.evidence import accumulate_evidence_batch
+        self.assertTrue(callable(accumulate_evidence_batch))
+
+    def test_batch_returns_list_same_length(self):
+        """返回列表长度应与输入 items 一致。"""
+        from unittest.mock import patch, MagicMock
+        from service.evidence import accumulate_evidence_batch
+        with patch("service.evidence.get_conn") as mock_conn:
+            mock_cur = MagicMock()
+            mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+            mock_cur.__exit__ = MagicMock(return_value=False)
+            mock_conn.return_value.__enter__ = MagicMock(return_value=mock_conn.return_value)
+            mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+            mock_conn.return_value.cursor.return_value = mock_cur
+            mock_cur.fetchall.return_value = []
+            mock_cur.fetchone.return_value = {
+                "id": 1, "user_code": "test", "category": "preference",
+                "subject_key": "user", "attribute_key": "drink", "value_text": "coffee",
+                "latest_claim": "喜欢咖啡", "conflict_scope": "user.drink",
+                "evidence_type": "explicit", "time_scope": "long_term",
+                "support_score": 0.5, "occurrence_count": 1,
+                "promoted_memory_id": None, "status": "active", "tags": [],
+                "first_seen_at": None, "last_seen_at": None,
+                "created_at": None, "updated_at": None,
+            }
+            items = [
+                {"subject": "user", "attribute": "drink", "value": "coffee",
+                 "claim": "喜欢���啡", "confidence": 0.8, "evidence_type": "explicit",
+                 "time_scope": "long_term", "category": "preference", "conflict_scope": "user.drink"},
+                {"subject": "user", "attribute": "food", "value": "rice",
+                 "claim": "喜欢米饭", "confidence": 0.7, "evidence_type": "observed",
+                 "time_scope": "long_term", "category": "preference", "conflict_scope": "user.food"},
+            ]
+            result = accumulate_evidence_batch(user_code="test", items=items)
+            self.assertEqual(2, len(result), "返回列表长度应与输入等长")
+
+    def test_empty_items_returns_empty(self):
+        from service.evidence import accumulate_evidence_batch
+        result = accumulate_evidence_batch(user_code="test", items=[])
+        self.assertEqual([], result)

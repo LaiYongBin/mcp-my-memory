@@ -171,17 +171,7 @@ def _update_existing_evidence(*, evidence_id: int, item: Dict[str, Any], delta: 
         return dict(row) if row else None
 
 
-def accumulate_evidence(*, user_code: Optional[str], item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    slot = _normalized_slot(item)
-    if not slot:
-        return None
-    resolved_user = _resolve_user(user_code)
-    delta = _support_delta(item)
-    existing_rows = _fetch_existing_rows(user_code=resolved_user, conflict_scope=slot["conflict_scope"])
-    target = _find_merge_target(existing_rows, value_text=slot["value_text"], tags=item.get("tags") or [])
-    if target:
-        return _update_existing_evidence(evidence_id=int(target["id"]), item=item, delta=delta)
-
+def _insert_new_evidence(*, resolved_user: str, slot: dict, item: dict, delta: float):
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -217,6 +207,19 @@ def accumulate_evidence(*, user_code: Optional[str], item: Dict[str, Any]) -> Op
         row = cur.fetchone()
         conn.commit()
         return dict(row) if row else None
+
+
+def accumulate_evidence(*, user_code: Optional[str], item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    slot = _normalized_slot(item)
+    if not slot:
+        return None
+    resolved_user = _resolve_user(user_code)
+    delta = _support_delta(item)
+    existing_rows = _fetch_existing_rows(user_code=resolved_user, conflict_scope=slot["conflict_scope"])
+    target = _find_merge_target(existing_rows, value_text=slot["value_text"], tags=item.get("tags") or [])
+    if target:
+        return _update_existing_evidence(evidence_id=int(target["id"]), item=item, delta=delta)
+    return _insert_new_evidence(resolved_user=resolved_user, slot=slot, item=item, delta=delta)
 
 
 def evidence_supports_promotion(item: Dict[str, Any], evidence: Optional[Dict[str, Any]]) -> bool:
@@ -263,6 +266,65 @@ def mark_evidence_promoted(evidence_id: int, memory_id: int) -> Optional[Dict[st
         row = cur.fetchone()
         conn.commit()
         return dict(row) if row else None
+
+
+def accumulate_evidence_batch(
+    *,
+    user_code: Optional[str],
+    items: List[Dict[str, Any]],
+) -> List[Optional[Dict[str, Any]]]:
+    """批量积累证据：先批量 SELECT 所有 conflict_scope，再逐条 UPDATE/INSERT。"""
+    if not items:
+        return []
+    resolved_user = _resolve_user(user_code)
+    # 1. 收集需要查询的 conflict_scopes
+    results: List[Optional[Dict[str, Any]]] = [None] * len(items)
+    slots_by_scope: Dict[str, List] = {}
+    for idx, item in enumerate(items):
+        slot = _normalized_slot(item)
+        if not slot:
+            continue
+        scope = slot["conflict_scope"]
+        delta = _support_delta(item)
+        slots_by_scope.setdefault(scope, []).append((idx, slot, item, delta))
+
+    if not slots_by_scope:
+        return results
+
+    # 2. 批量 SELECT 所有 scopes（一次查询）
+    scopes = list(slots_by_scope.keys())
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_code, category, subject_key, attribute_key, value_text, latest_claim,
+                   conflict_scope, evidence_type, time_scope, support_score, occurrence_count,
+                   promoted_memory_id, status, tags, first_seen_at, last_seen_at, created_at, updated_at
+            FROM memory_signal
+            WHERE user_code = %s
+              AND conflict_scope = ANY(%s)
+              AND status = %s
+            ORDER BY support_score DESC, occurrence_count DESC, last_seen_at DESC
+            """,
+            (resolved_user, scopes, STATUS_ACTIVE),
+        )
+        all_rows = [dict(r) for r in cur.fetchall()]
+
+    # 3. 按 scope 分组
+    rows_by_scope: Dict[str, List[Dict[str, Any]]] = {}
+    for row in all_rows:
+        rows_by_scope.setdefault(str(row["conflict_scope"]), []).append(row)
+
+    # 4. 逐 scope 处理（UPDATE/INSERT）
+    for scope, entries in slots_by_scope.items():
+        existing_rows = rows_by_scope.get(scope, [])
+        for idx, slot, item, delta in entries:
+            target = _find_merge_target(existing_rows, value_text=slot["value_text"], tags=item.get("tags") or [])
+            if target:
+                result = _update_existing_evidence(evidence_id=int(target["id"]), item=item, delta=delta)
+            else:
+                result = _insert_new_evidence(resolved_user=resolved_user, slot=slot, item=item, delta=delta)
+            results[idx] = result
+    return results
 
 
 def list_evidence(*, user_code: Optional[str] = None, conflict_scope: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:

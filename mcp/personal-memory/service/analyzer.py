@@ -612,6 +612,11 @@ def save_analysis_results(
             row = cur.fetchone()
             saved.append(dict(row))
         conn.commit()
+    # 批量积累 evidence（一次 SELECT + 逐条 UPDATE/INSERT，减少 DB 往返）
+    from service.evidence import accumulate_evidence_batch
+    evidence_items = [item for item in items if str(item.get("action") or "") == ACTION_LONG_TERM and item.get("claim")]
+    if evidence_items:
+        accumulate_evidence_batch(user_code=user_code, items=evidence_items)
     return saved
 
 
