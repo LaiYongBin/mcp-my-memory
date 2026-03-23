@@ -314,6 +314,7 @@ class RecallResult(MCPResultBase):
     internal_strategy: InternalStrategy = Field(default_factory=InternalStrategy)
     internal_strategy_summary: str = ""
     disclosure_warnings: List[str] = Field(default_factory=list)
+    cited_sources: List[Dict[str, Any]] = Field(default_factory=list)
     recommended_response_plan: RecommendedResponsePlan = Field(
         default_factory=RecommendedResponsePlan
     )

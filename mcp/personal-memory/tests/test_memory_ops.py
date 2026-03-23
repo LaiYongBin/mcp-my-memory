@@ -134,5 +134,30 @@ class MemoryTimelineTests(unittest.TestCase):
             self.assertEqual([], result)
 
 
+class FetchSourceTurnsTests(unittest.TestCase):
+    def test_fetch_source_turns_exists(self) -> None:
+        from service.memory_ops import fetch_source_turns
+        self.assertTrue(callable(fetch_source_turns))
+
+    def test_exact_ref_parsed_correctly(self) -> None:
+        from unittest.mock import patch, MagicMock
+        from service.memory_ops import fetch_source_turns
+
+        with patch("service.memory_ops.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            fake_turn = {"id": 42, "content": "用户说了什么", "role": "user", "session_key": "s1"}
+            mock_cursor.fetchall.return_value = [fake_turn]
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+            result = fetch_source_turns(["s1:42"])
+            self.assertIn("s1:42", result)
+            self.assertEqual(42, result["s1:42"]["id"])
+
+    def test_empty_refs_returns_empty(self) -> None:
+        from service.memory_ops import fetch_source_turns
+        result = fetch_source_turns([])
+        self.assertEqual({}, result)
+
+
 if __name__ == "__main__":
     unittest.main()

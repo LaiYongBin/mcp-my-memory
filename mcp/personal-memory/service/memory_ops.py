@@ -1247,3 +1247,43 @@ def get_stale_for_challenge(
     for row in rows:
         row["suggested_question"] = _suggested_challenge_question(row)
     return rows
+
+
+def fetch_source_turns(source_refs: List[str]) -> Dict[str, Dict]:
+    """批量查询 conversation_turn，返回 {source_ref: turn_row}。"""
+    if not source_refs:
+        return {}
+    exact: Dict[str, int] = {}    # source_ref → turn_id
+    fuzzy: Dict[str, str] = {}    # source_ref → session_key
+
+    for ref in source_refs:
+        if not ref:
+            continue
+        if ":" in ref:
+            sk, _, tid = ref.partition(":")
+            try:
+                exact[ref] = int(tid)
+            except ValueError:
+                fuzzy[ref] = ref
+        else:
+            fuzzy[ref] = ref
+
+    results: Dict[str, Dict] = {}
+    with get_conn() as conn, conn.cursor() as cur:
+        if exact:
+            ids = list(exact.values())
+            cur.execute("SELECT * FROM conversation_turn WHERE id = ANY(%s)", (ids,))
+            id_to_row = {int(row["id"]): dict(row) for row in cur.fetchall()}
+            for ref, tid in exact.items():
+                if tid in id_to_row:
+                    results[ref] = id_to_row[tid]
+        for ref, sk in fuzzy.items():
+            cur.execute(
+                "SELECT * FROM conversation_turn WHERE session_key = %s AND role = 'user' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (sk,)
+            )
+            row = cur.fetchone()
+            if row:
+                results[ref] = dict(row)
+    return results

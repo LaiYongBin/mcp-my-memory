@@ -117,6 +117,20 @@ def record_conversation_event(
         return dict(row) if row else None
 
 
+def _update_turn_source_ref(turn_id: int, source_ref: str) -> None:
+    """写回 source_ref 到已插入的 conversation_turn 行。失败不影响主流程。"""
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE conversation_turn SET source_ref = %s WHERE id = %s",
+                (source_ref, turn_id)
+            )
+            conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("update turn source_ref failed: %s", e)
+
+
 def upsert_working_memory(
     *,
     user_code: str,
@@ -434,6 +448,13 @@ def run_capture_cycle(
         )
     if assistant_event:
         events.append(assistant_event)
+
+    # D2: 若调用方未传 source_ref，自动生成并写回
+    if not source_ref and user_event and user_event.get("id"):
+        auto_ref = f"{session_key}:{int(user_event['id'])}"
+        _update_turn_source_ref(int(user_event["id"]), auto_ref)
+        if assistant_event and assistant_event.get("id"):
+            _update_turn_source_ref(int(assistant_event["id"]), auto_ref)
 
     analysis_candidates = analyze_turn(
         user_text=user_text,

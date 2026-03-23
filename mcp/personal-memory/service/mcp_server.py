@@ -41,6 +41,7 @@ from service.entity_memory import summarize_entities_from_memories
 from service.memory_ops import (
     archive_memory,
     delete_memory as delete_memory_row,
+    fetch_source_turns,
     get_memory_timeline,
     get_stale_for_challenge,
     maintain_memory_store,
@@ -630,6 +631,7 @@ def _build_recall_result(
     context_limit: int = 3,
     recent_context_limit: int = 2,
     recent_context_hours: int = 168,
+    include_cited_sources: bool = False,
 ) -> RecallResult:
     query_text = _compose_recall_query(
         user_message=user_message, draft_response=draft_response, topic_hint=topic_hint
@@ -703,6 +705,12 @@ def _build_recall_result(
         recommended_primary_hook,
         limit=2,
     )
+    cited_sources = []
+    if include_cited_sources:
+        source_refs = [m.get("source_ref") for m in memories if m.get("source_ref")]
+        if source_refs:
+            source_map = fetch_source_turns(source_refs)
+            cited_sources = list(source_map.values())
     internal_strategy = {
         "style": str(decision["suggested_integration_style"]),
         "should_recall": bool(decision["should_recall"]),
@@ -757,6 +765,7 @@ def _build_recall_result(
         internal_strategy=internal_strategy,
         internal_strategy_summary=internal_strategy_summary,
         disclosure_warnings=disclosure_warnings,
+        cited_sources=cited_sources,
         recommended_response_plan=response_plan,
     )
 
@@ -1139,6 +1148,7 @@ def create_server(
         context_limit: int = 3,
         recent_context_limit: int = 2,
         recent_context_hours: int = 168,
+        include_cited_sources: bool = False,
     ) -> RecallResult:
         return _build_recall_result(
             user_message=user_message,
@@ -1149,6 +1159,7 @@ def create_server(
             context_limit=context_limit,
             recent_context_limit=recent_context_limit,
             recent_context_hours=recent_context_hours,
+            include_cited_sources=include_cited_sources,
         )
 
     @server.tool(name="orchestrate_turn_memory", structured_output=True)
