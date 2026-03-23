@@ -21,7 +21,7 @@ from service.constants import (
     SOURCE_MANUAL,
     STATUS_ACTIVE,
 )
-from service.capture_cycle import run_capture_cycle, _pair_turns
+from service.capture_cycle import list_working_memories, run_capture_cycle, _pair_turns
 from service.context_snapshots import (
     search_context_snapshots,
     search_recent_context_summaries,
@@ -81,6 +81,8 @@ from service.schemas import (
     ReviewCandidate,
     ReviewCandidateList,
     TurnOrchestrationResult,
+    WorkingMemory,
+    WorkingMemoryList,
 )
 
 
@@ -1422,6 +1424,20 @@ def create_server(
         rows = list_review_candidates(user_code=user_code, limit=limit)
         return ReviewCandidateList(
             candidates=[ReviewCandidate(**r) for r in rows],
+            total=len(rows),
+        )
+
+    @server.tool(name="list_working_memories", structured_output=True)
+    def list_working_memories_tool(
+        user_code: Optional[str] = None,
+        session_key: Optional[str] = None,
+        limit: int = 20,
+    ) -> WorkingMemoryList:
+        rows = list_working_memories(
+            user_code=user_code, session_key=session_key, limit=limit
+        )
+        return WorkingMemoryList(
+            memories=[WorkingMemory(**r) for r in rows],
             total=len(rows),
         )
 

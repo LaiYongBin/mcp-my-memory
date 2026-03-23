@@ -361,3 +361,22 @@ class ReviewCandidate(MCPResultBase):
 class ReviewCandidateList(MCPResultBase):
     candidates: List[ReviewCandidate] = Field(default_factory=list)
     total: int = 0
+
+
+class WorkingMemory(MCPResultBase):
+    id: int
+    user_code: str = ""
+    session_key: str = ""
+    memory_key: str = ""
+    summary: str = ""
+    importance: int = 5
+    expires_at: Any = None
+    source_text: str = ""
+    status: str = "active"
+    created_at: Any = None
+    updated_at: Any = None
+
+
+class WorkingMemoryList(MCPResultBase):
+    memories: List[WorkingMemory] = Field(default_factory=list)
+    total: int = 0
