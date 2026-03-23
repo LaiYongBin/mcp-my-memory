@@ -55,6 +55,7 @@ from service.memory_ops import (
     merge_duplicate_memories,
     search_memories,
     search_memories_by_time_range,
+    submit_challenge_answer,
     upsert_memory,
 )
 from service.memory_governance import apply_memory_governance
@@ -684,8 +685,16 @@ def _build_recall_result(
             user_code=user_code, session_key=None, query="", snapshot_levels=[SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC],
             recent_hours=recent_context_hours, limit=recent_context_limit,
         )
-        memories = f_memories.result()
-        contexts = f_contexts.result()
+        try:
+            memories = f_memories.result()
+        except Exception as e:
+            logging.getLogger(__name__).warning("memories fetch failed: %s", e)
+            memories = []
+        try:
+            contexts = f_contexts.result()
+        except Exception as e:
+            logging.getLogger(__name__).warning("contexts fetch failed: %s", e)
+            contexts = []
         try:
             recent_contexts = f_recent.result()
         except Exception as e:
@@ -1395,6 +1404,23 @@ def create_server(
             created_memories=created_memories,
             failed_turns=failed,
         )
+
+    @server.tool(name="submit_challenge_answer", structured_output=True)
+    def submit_challenge_answer_tool(
+        memory_id: int,
+        confirmed: bool,
+        answer: Optional[str] = None,
+        user_code: Optional[str] = None,
+    ) -> MemoryMutationResult:
+        result = submit_challenge_answer(
+            memory_id=memory_id,
+            user_code=user_code,
+            confirmed=confirmed,
+            answer=answer,
+        )
+        if "error" in result:
+            raise ValueError(result["error"])
+        return MemoryMutationResult(**result)
 
     return server
 
