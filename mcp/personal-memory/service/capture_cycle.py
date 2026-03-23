@@ -27,7 +27,7 @@ from service.constants import (
 )
 from service.analyzer import analyze_turn, mark_event_analyzed, save_analysis_results
 from service.db import get_conn, get_settings
-from service.evidence import accumulate_evidence, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
+from service.evidence import accumulate_evidence_batch, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
 from service.memory_ops import archive_memory, list_memories_by_conflict_scope, save_review_candidate, upsert_memory
 import concurrent.futures
@@ -478,62 +478,85 @@ def run_capture_cycle(
     pending_candidates = []
     review_items = []
     evidence_items = []
+
+    # 先收集需要积累证据的 items（ACTION_LONG_TERM 和 ACTION_REVIEW）
+    long_term_items = []
+    review_action_items = []
     for item in analysis_results:
         action = item.get("action")
+        claim = str(item.get("claim") or "").strip()
+        if action == ACTION_LONG_TERM and claim:
+            long_term_items.append(item)
+        elif action == ACTION_REVIEW and claim:
+            review_action_items.append(item)
+
+    # 合并为 all_evidence_items_input，批量调用 accumulate_evidence_batch
+    all_evidence_items_input = long_term_items + review_action_items
+    evidence_batch_results = accumulate_evidence_batch(user_code=resolved_user, items=all_evidence_items_input)
+
+    # 建立 item id 到 evidence 的映射（用 index 对应）
+    evidence_by_index: Dict[int, Any] = {}
+    for idx, ev in enumerate(evidence_batch_results):
+        if ev:
+            evidence_by_index[idx] = ev
+            evidence_items.append(ev)
+
+    # 处理 ACTION_LONG_TERM
+    for lt_idx, item in enumerate(long_term_items):
         claim = str(item.get("claim") or "").strip()
         category = str(item.get("category") or "analysis")
         confidence = float(item.get("confidence") or 0.5)
         tags = list(item.get("tags") or [])
-        evidence = None
-        if action == ACTION_LONG_TERM and claim:
-            evidence = accumulate_evidence(user_code=resolved_user, item=item)
-            if evidence:
-                evidence_items.append(evidence)
-            if evidence_supports_promotion(item, evidence):
-                promoted_item = item.copy()
-                promoted_item["confidence"] = promoted_confidence(item, evidence)
-                resolved = resolve_analysis_memory(promoted_item, resolved_user, defer_embedding=True)
-                memory_payload = resolved.get("memory")
-                if memory_payload:
-                    persisted.append(resolved)
-                    memory_id = memory_payload.get("id") if isinstance(memory_payload, dict) else None
-                    if evidence and memory_id:
-                        mark_evidence_promoted(int(evidence["id"]), int(memory_id))
-                elif resolved.get("resolution") == "needs-review":
-                    review_items.append(
-                        save_review_candidate(
-                            user_code=resolved_user,
-                            source_text=user_text,
-                            candidate={
-                                "title": "待确认候选: " + claim[:60],
-                                "content": claim,
-                                "memory_type": "context",
-                                "reason": "analysis-conflict-review:" + category,
-                                "confidence": confidence,
-                                "tags": list(dict.fromkeys(tags + ["analysis-review"])),
-                                "status": STATUS_PENDING,
-                            },
-                        )
+        evidence = evidence_by_index.get(lt_idx)
+        if evidence_supports_promotion(item, evidence):
+            promoted_item = item.copy()
+            promoted_item["confidence"] = promoted_confidence(item, evidence)
+            resolved = resolve_analysis_memory(promoted_item, resolved_user, defer_embedding=True)
+            memory_payload = resolved.get("memory")
+            if memory_payload:
+                persisted.append(resolved)
+                memory_id = memory_payload.get("id") if isinstance(memory_payload, dict) else None
+                if evidence and memory_id:
+                    mark_evidence_promoted(int(evidence["id"]), int(memory_id))
+            elif resolved.get("resolution") == "needs-review":
+                review_items.append(
+                    save_review_candidate(
+                        user_code=resolved_user,
+                        source_text=user_text,
+                        candidate={
+                            "title": "待确认候选: " + claim[:60],
+                            "content": claim,
+                            "memory_type": "context",
+                            "reason": "analysis-conflict-review:" + category,
+                            "confidence": confidence,
+                            "tags": list(dict.fromkeys(tags + ["analysis-review"])),
+                            "status": STATUS_PENDING,
+                        },
                     )
-        elif action == ACTION_REVIEW and claim:
-            evidence = accumulate_evidence(user_code=resolved_user, item=item)
-            if evidence:
-                evidence_items.append(evidence)
-            review_items.append(
-                save_review_candidate(
-                    user_code=resolved_user,
-                    source_text=user_text,
-                    candidate={
-                        "title": "待确认候选: " + claim[:60],
-                        "content": claim,
-                        "memory_type": "context",
-                        "reason": "analysis-review:" + category,
-                        "confidence": confidence,
-                        "tags": list(dict.fromkeys(tags + ["analysis-review"])),
-                        "status": STATUS_PENDING,
-                    },
                 )
+
+    # 处理 ACTION_REVIEW
+    for rv_idx, item in enumerate(review_action_items):
+        claim = str(item.get("claim") or "").strip()
+        category = str(item.get("category") or "analysis")
+        confidence = float(item.get("confidence") or 0.5)
+        tags = list(item.get("tags") or [])
+        evidence = evidence_by_index.get(len(long_term_items) + rv_idx)
+        review_items.append(
+            save_review_candidate(
+                user_code=resolved_user,
+                source_text=user_text,
+                candidate={
+                    "title": "待确认候选: " + claim[:60],
+                    "content": claim,
+                    "memory_type": "context",
+                    "reason": "analysis-review:" + category,
+                    "confidence": confidence,
+                    "tags": list(dict.fromkeys(tags + ["analysis-review"])),
+                    "status": STATUS_PENDING,
+                },
             )
+        )
 
     heuristic_candidates = extract_candidates(user_text)
     for candidate in heuristic_candidates:

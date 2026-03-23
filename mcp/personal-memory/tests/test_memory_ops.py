@@ -910,3 +910,15 @@ class SessionEventsLimitTests(unittest.TestCase):
         from service.constants import CONTEXT_EVENTS_LIMIT
         self.assertGreater(CONTEXT_EVENTS_LIMIT, 0,
                            "CONTEXT_EVENTS_LIMIT 应大于 0")
+
+
+class CaptureCycleEvidenceBatchTests(unittest.TestCase):
+    def test_run_capture_cycle_uses_batch_evidence(self):
+        """run_capture_cycle 应使用 accumulate_evidence_batch，不应逐条调用 accumulate_evidence。"""
+        import inspect
+        from service import capture_cycle
+        source = inspect.getsource(capture_cycle.run_capture_cycle)
+        self.assertNotIn("accumulate_evidence(user_code",
+                         source, "run_capture_cycle 不应再调用逐条的 accumulate_evidence")
+        self.assertIn("accumulate_evidence_batch",
+                      source, "run_capture_cycle 应使用 accumulate_evidence_batch")
