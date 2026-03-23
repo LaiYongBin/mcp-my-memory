@@ -28,7 +28,7 @@ from service.constants import (
 )
 from service.analyzer import analyze_turn, mark_event_analyzed, save_analysis_results
 from service.db import get_conn, get_settings
-from service.evidence import accumulate_evidence_batch, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
+from service.evidence import accumulate_evidence, accumulate_evidence_batch, evidence_supports_promotion, mark_evidence_promoted, promoted_confidence
 from service.extraction import extract_candidates, extract_review_candidates, should_auto_persist
 from service.memory_ops import archive_memory, list_memories_by_conflict_scope, save_review_candidate, upsert_memory
 from service.embeddings import refresh_memories_batch, generate_embeddings_batch
