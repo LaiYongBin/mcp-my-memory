@@ -21,7 +21,7 @@ from service.constants import (
     SOURCE_MANUAL,
     STATUS_ACTIVE,
 )
-from service.capture_cycle import batch_ingest_turns, run_capture_cycle, _pair_turns
+from service.capture_cycle import run_capture_cycle, _pair_turns
 from service.context_snapshots import (
     search_context_snapshots,
     search_recent_context_summaries,
@@ -1383,7 +1383,7 @@ def create_server(
         pairs, failed = _pair_turns(turns)
         ingested_turns = 0
         created_memories = 0
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for user_turn, assistant_turn in pairs:
             result = await loop.run_in_executor(
                 None,
