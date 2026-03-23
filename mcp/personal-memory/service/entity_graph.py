@@ -456,6 +456,30 @@ def search_entities(
         return [dict(row) for row in cur.fetchall()]
 
 
+def find_two_hop_connections(
+    source_subject_keys: List[str],
+    exclude_subject_keys: Optional[List[str]] = None,
+    user_code: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    if not source_subject_keys:
+        return []
+    # exclude 固定含 "user"（使 != ALL 永不为空）
+    exclude = list(set(exclude_subject_keys or []) | {"user"})
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT source_subject_key AS via_entity,
+                   target_subject_key, relation_type
+            FROM entity_edge
+            WHERE source_subject_key = ANY(%s)
+              AND target_subject_key != ALL(%s)
+              AND (%s IS NULL OR user_code = %s)
+            """,
+            (source_subject_keys, exclude, user_code, user_code),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def search_entity_relationships(
     *,
     query: str = "",

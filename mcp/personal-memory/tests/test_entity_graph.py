@@ -99,5 +99,50 @@ class InferEdgeRelationTypeTests(unittest.TestCase):
         self.assertEqual("associated_preference", result)
 
 
+class TwoHopConnectionTests(unittest.TestCase):
+    def test_empty_input_returns_empty(self) -> None:
+        from service.entity_graph import find_two_hop_connections
+        result = find_two_hop_connections(source_subject_keys=[], user_code="LYB")
+        self.assertEqual([], result)
+
+    def test_two_hop_excludes_user_always(self) -> None:
+        """'user' 始终在 exclude 列表中，即使调用者未传入。"""
+        from unittest.mock import patch, MagicMock
+        from service.entity_graph import find_two_hop_connections
+
+        with patch("service.entity_graph.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+            find_two_hop_connections(
+                source_subject_keys=["friend_a"],
+                exclude_subject_keys=None,
+                user_code="LYB",
+            )
+            call_args = mock_cursor.execute.call_args
+            params = call_args[0][1]
+            exclude_list = params[1]
+            self.assertIn("user", exclude_list)
+
+    def test_returns_correct_fields(self) -> None:
+        from unittest.mock import patch, MagicMock
+        from service.entity_graph import find_two_hop_connections
+
+        with patch("service.entity_graph.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = [
+                {"via_entity": "friend_a", "target_subject_key": "project_x", "relation_type": "participates_in"}
+            ]
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+            result = find_two_hop_connections(
+                source_subject_keys=["friend_a"],
+                user_code="LYB",
+            )
+            self.assertEqual(1, len(result))
+            self.assertEqual("friend_a", result[0]["via_entity"])
+
+
 if __name__ == "__main__":
     unittest.main()

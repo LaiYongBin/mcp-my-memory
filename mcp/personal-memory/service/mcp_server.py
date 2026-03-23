@@ -32,6 +32,7 @@ from service.domain_registry import (
     reject_domain_candidate,
 )
 from service.entity_graph import (
+    find_two_hop_connections,
     infer_edge_relation_type,
     rebuild_entity_graph,
     search_entities,
@@ -676,6 +677,26 @@ def _build_recall_result(
         entities=related_entities,
         memories=visible_memories + memory_groups["suppressed"] + memory_groups["expansive"],
     )
+    # E3: 一阶实体加上 hop=1 标记
+    for entity in related_entities:
+        entity.setdefault("hop", 1)
+        entity.setdefault("via_entity", None)
+
+    # E3: 查找二阶实体
+    source_keys = [e["subject_key"] for e in related_entities if e.get("subject_key")]
+    exclude_keys = [e["subject_key"] for e in related_entities if e.get("subject_key")]
+    if source_keys:
+        two_hop_rows = find_two_hop_connections(
+            source_subject_keys=source_keys,
+            exclude_subject_keys=exclude_keys,
+            user_code=user_code,
+        )
+        for row in two_hop_rows:
+            related_entities.append({
+                **row,
+                "hop": 2,
+                "visibility": "internal_only",
+            })
     decision = _decide_recall(
         user_message=user_message,
         draft_response=draft_response,
