@@ -95,30 +95,43 @@ def derive_memory_governance(item: Dict[str, Any]) -> Dict[str, str]:
 def derive_stability_score(item: Dict[str, Any]) -> float:
     confidence = float(item.get("confidence") or 0.0)
     explicit_bonus = 0.18 if item.get("is_explicit") else 0.0
-    recall_bonus = min(int(item.get("recall_count") or 0), 3) * 0.12
+    recall_count = int(item.get("recall_count") or 0)
+    recall_bonus = min(recall_count, 5) * 0.10   # 最多 +0.50，每次 +0.10
     age_penalty = 0.0
     updated_at = _as_datetime(item.get("updated_at"))
     attribute_key = str(item.get("attribute_key") or "").lower()
-    # 时效性强的属性使用更激进的衰减曲线
     TIME_SENSITIVE_ATTRS = ("current_goal", "current_project", "current_focus",
                             "current_status", "short_term")
     is_time_sensitive = any(attr in attribute_key for attr in TIME_SENSITIVE_ATTRS)
+
+    # recall 稳定性乘数：高频召回减缓衰减
+    # recall_count=0 → multiplier=1.0（全力衰减）
+    # recall_count=5 → multiplier=0.6（衰减 60%）
+    # recall_count>=10 → multiplier=0.2（最小衰减）
+    decay_multiplier = max(0.2, 1.0 - min(recall_count, 10) * 0.08)
+
     if updated_at:
         age_days = max(0.0, (datetime.now(timezone.utc) - updated_at).days)
         if is_time_sensitive:
             if age_days >= 60:
-                age_penalty = 0.40
+                raw_penalty = 0.40
             elif age_days >= 30:
-                age_penalty = 0.25
+                raw_penalty = 0.25
             elif age_days >= 14:
-                age_penalty = 0.12
+                raw_penalty = 0.12
+            else:
+                raw_penalty = 0.0
         else:
             if age_days >= 120:
-                age_penalty = 0.30
+                raw_penalty = 0.30
             elif age_days >= 60:
-                age_penalty = 0.18
+                raw_penalty = 0.18
             elif age_days >= 45:
-                age_penalty = 0.10
+                raw_penalty = 0.10
+            else:
+                raw_penalty = 0.0
+        age_penalty = raw_penalty * decay_multiplier
+
     return round(max(0.0, min(1.0, confidence + explicit_bonus + recall_bonus - age_penalty)), 4)
 
 

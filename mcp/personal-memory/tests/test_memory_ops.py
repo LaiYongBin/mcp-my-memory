@@ -1005,3 +1005,24 @@ class MemoryTimelineRecursiveCTETests(unittest.TestCase):
                       "get_memory_timeline 应使用 WITH RECURSIVE CTE 遍历 supersedes 链")
         self.assertNotIn("_fetch_where_supersedes_id", source,
                          "get_memory_timeline 不应再调用 _fetch_where_supersedes_id 循环遍历")
+
+
+class StabilityRecallMultiplierTests(unittest.TestCase):
+    def test_high_recall_count_slows_age_decay(self):
+        """recall_count >= 5 时，age_penalty 应被减弱，使长期高频召回记忆保持较高 stability_score。"""
+        from datetime import datetime, timezone, timedelta
+        from service.memory_governance import derive_stability_score
+        # 180 天未更新但被频繁召回 vs 0 次召回
+        base = {
+            "confidence": 0.7,
+            "is_explicit": False,
+            "attribute_key": "favorite_drink",
+            "updated_at": (datetime.now(timezone.utc) - timedelta(days=180)).isoformat(),
+        }
+        score_zero_recall = derive_stability_score({**base, "recall_count": 0})
+        score_high_recall = derive_stability_score({**base, "recall_count": 10})
+        # 高频召回的记忆 180 天后应仍高于 0.5（当前实现可能 < 0.5）
+        self.assertGreater(score_high_recall, score_zero_recall + 0.10,
+                           "高召回次数应减缓 age_penalty，使 stability 高于无召回版本")
+        self.assertGreater(score_high_recall, 0.5,
+                           "高召回记忆（10次）即使 180 天后也应保持稳定（>0.5）")
