@@ -61,5 +61,43 @@ class EntityGraphTests(unittest.TestCase):
         self.assertEqual("entity", infer_relation_type("misc_topic"))
 
 
+class InferEdgeRelationTypeTests(unittest.TestCase):
+    def _infer(self, item: dict) -> str:
+        from service.entity_graph import infer_edge_relation_type
+        return infer_edge_relation_type(item)
+
+    def test_favorite_attribute_returns_associated_preference(self) -> None:
+        result = self._infer({"attribute_key": "favorite_drink", "subject_key": "user"})
+        self.assertEqual("associated_preference", result)
+
+    def test_preference_attribute_returns_associated_preference(self) -> None:
+        result = self._infer({"attribute_key": "preference_style", "subject_key": "user"})
+        self.assertEqual("associated_preference", result)
+
+    def test_health_attribute_with_related_subject_returns_responsible_for(self) -> None:
+        result = self._infer({
+            "attribute_key": "health_care",
+            "subject_key": "user",
+            "related_subject_key": "friend_a",
+        })
+        self.assertEqual("responsible_for", result)
+
+    def test_new_keyword_roommate_returns_lives_with(self) -> None:
+        result = self._infer({"content": "小王是我的室友", "subject_key": "friend_xiaowang"})
+        self.assertEqual("lives_with", result)
+
+    def test_new_keyword_mentor_returns_mentor_of(self) -> None:
+        result = self._infer({"content": "他是我的导师", "subject_key": "mentor_zhang"})
+        self.assertEqual("mentor_of", result)
+
+    def test_priority_favorite_over_semantic(self) -> None:
+        result = self._infer({
+            "attribute_key": "favorite_tool",
+            "content": "一起合作",
+            "subject_key": "user",
+        })
+        self.assertEqual("associated_preference", result)
+
+
 if __name__ == "__main__":
     unittest.main()

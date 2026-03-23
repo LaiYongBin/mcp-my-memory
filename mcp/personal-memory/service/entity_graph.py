@@ -39,14 +39,36 @@ def _relationship_semantic(item: Dict[str, Any]) -> Optional[str]:
         return "participates_in"
     if any(keyword in text for keyword in ("认识", "熟悉", "朋友", "同事")):
         return "knows"
+    if any(kw in text for kw in ["室友", "同住", "合租"]):
+        return "lives_with"
+    if any(kw in text for kw in ["兄弟", "姐妹", "兄妹", "弟妹"]):
+        return "sibling_of"
+    if any(kw in text for kw in ["上司", "老板", "汇报"]):
+        return "reports_to"
+    if any(kw in text for kw in ["导师", "mentor", "带我入"]):
+        return "mentor_of"
     return None
 
 
 def infer_edge_relation_type(item: Dict[str, Any]) -> str:
+    attribute_key = item.get("attribute_key") or ""
+    related_subject_key = str(item.get("related_subject_key") or item.get("target_subject_key") or "").strip()
+
+    # 优先级 1: attribute_key 包含 favorite_/preference_ → associated_preference
+    if "favorite_" in attribute_key or "preference_" in attribute_key:
+        return "associated_preference"
+
+    # 优先级 2: 有第三方 subject 且 attribute_key 含 health/care/responsible
+    if related_subject_key:
+        if any(kw in attribute_key for kw in ["health", "care", "responsible"]):
+            return "responsible_for"
+
+    # 优先级 3: 内容关键词匹配
     semantic = _relationship_semantic(item)
     if semantic:
         return semantic
-    related_subject_key = str(item.get("related_subject_key") or item.get("target_subject_key") or "").strip()
+
+    # fallback
     if related_subject_key:
         return infer_relation_type(related_subject_key)
     subject_key = str(item.get("subject_key") or "").strip()
@@ -288,6 +310,7 @@ def refresh_entity_graph_for_subject(*, user_code: Optional[str], subject_key: O
                         {
                             "subject_key": cleaned_subject,
                             "related_subject_key": related_subject_key,
+                            "attribute_key": row.get("attribute_key") or "",   # 新增
                         }
                     ),
                     str(row.get("sensitivity_level") or "normal"),
