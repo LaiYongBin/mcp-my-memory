@@ -240,7 +240,8 @@ def _create_domain_value(
         )
         row = cur.fetchone()
         conn.commit()
-        return dict(row)
+    lookup_domain_value.cache_clear()
+    return dict(row)
 
 
 def _upsert_domain_alias(
@@ -263,7 +264,8 @@ def _upsert_domain_alias(
         )
         row = cur.fetchone()
         conn.commit()
-        return dict(row)
+    lookup_domain_alias.cache_clear()
+    return dict(row)
 
 
 def approve_domain_candidate(

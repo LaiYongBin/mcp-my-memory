@@ -41,7 +41,7 @@ def _get_pool() -> ConnectionPool:
         _pool = ConnectionPool(
             conninfo=_make_conninfo(),
             min_size=2,
-            max_size=10,
+            max_size=20,
             configure=_configure_conn,
             kwargs={"row_factory": dict_row},
             open=False,  # 延迟打开，避免 import 时建立连接

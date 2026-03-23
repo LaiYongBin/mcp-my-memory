@@ -239,6 +239,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             subject_key=None,
             include_archived=False,
             limit=5,
+            offset=0,
         )
         self.assertEqual(1, structured["count"])
         self.assertEqual("friend_xiaowang", structured["items"][0]["subject_key"])
@@ -270,6 +271,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             subject_key=None,
             include_archived=False,
             limit=5,
+            offset=0,
         )
         self.assertEqual(1, structured["count"])
         self.assertEqual("friend_xiaowang", structured["items"][0]["target_subject_key"])
@@ -387,6 +389,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             tags=[],
             include_archived=False,
             limit=5,
+            offset=0,
         )
         self.assertEqual(1, structured["count"])
         self.assertEqual(7, structured["items"][0]["id"])
@@ -1298,3 +1301,66 @@ class RebuildEntityGraphParallelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnrichRelatedEntitiesTests(unittest.TestCase):
+    def test_enrich_uses_dict_not_nested_loop(self):
+        """_enrich_related_entities 应使用字典索引而非嵌套循环。"""
+        import inspect
+        from service import mcp_server
+        source = inspect.getsource(mcp_server._enrich_related_entities)
+        self.assertIn("mem_by_subject", source,
+                      "_enrich_related_entities 应使用 mem_by_subject 字典索引")
+
+    def test_enrich_result_correctness(self):
+        """_enrich_related_entities 字典化后结果应与原逻辑一致。"""
+        from service.mcp_server import _enrich_related_entities
+        entities = [
+            {"subject_key": "friend_a", "disclosure_policy": "normal"},
+            {"subject_key": "project_x", "disclosure_policy": "normal"},
+        ]
+        memories = [
+            {"subject_key": "friend_a", "attribute_key": "一起", "title": "合作项目",
+             "content": "一起做项目", "hybrid_score": 0.8, "rank_score": 0.0,
+             "vector_score": 0.0, "summary": None, "value_text": None},
+            {"subject_key": "project_x", "attribute_key": "负责", "title": "项目负责人",
+             "content": "负责项目", "hybrid_score": 0.7, "rank_score": 0.0,
+             "vector_score": 0.0, "summary": None, "value_text": None},
+        ]
+        result = _enrich_related_entities(entities=entities, memories=memories)
+        self.assertEqual(len(result), 2)
+        keys = {e["subject_key"] for e in result}
+        self.assertIn("friend_a", keys)
+        self.assertIn("project_x", keys)
+
+
+class ConnectionPoolSizeTests(unittest.TestCase):
+    def test_pool_max_size_is_sufficient(self):
+        """连接池 max_size 应 >= 16，以支持 ThreadPoolExecutor(max_workers=8) 并发场景。"""
+        import inspect
+        from service import db
+        source = inspect.getsource(db._get_pool)
+        self.assertNotIn("max_size=10", source,
+                         "连接池 max_size 不应为 10（太小），应调整为 >= 16")
+
+
+class ToolOffsetParamTests(unittest.TestCase):
+    def test_search_memories_tool_has_offset(self):
+        """search_memories 工具应暴露 offset 参数。"""
+        from service.mcp_server import create_server
+        server = create_server()
+        tools = {t.name: t for t in server._tool_manager.list_tools()}
+        tool = tools.get("search_memories")
+        self.assertIsNotNone(tool)
+        params = set(tool.parameters.get("properties", {}).keys())
+        self.assertIn("offset", params, "search_memories 工具应有 offset 参数")
+
+    def test_search_entities_tool_has_offset(self):
+        """search_entities 工具应暴露 offset 参数。"""
+        from service.mcp_server import create_server
+        server = create_server()
+        tools = {t.name: t for t in server._tool_manager.list_tools()}
+        tool = tools.get("search_entities")
+        self.assertIsNotNone(tool)
+        params = set(tool.parameters.get("properties", {}).keys())
+        self.assertIn("offset", params, "search_entities 工具应有 offset 参数")

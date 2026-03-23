@@ -448,14 +448,19 @@ def _enrich_related_entities(
 ) -> List[Dict[str, Any]]:
     if not entities:
         return []
+    # 预建索引，避免 O(entities × memories) 的嵌套扫描
+    mem_by_subject: Dict[str, List[Dict[str, Any]]] = {}
+    for m in memories:
+        sk = str(m.get("subject_key") or "").strip()
+        if sk:
+            mem_by_subject.setdefault(sk, []).append(m)
     enriched: List[Dict[str, Any]] = []
     for entity in entities:
         subject_key = str(entity.get("subject_key") or "").strip()
         entity_memories = [
             item
-            for item in memories
-            if str(item.get("subject_key") or "").strip() == subject_key
-            and _memory_relevance(item, subject_key) >= 0.40
+            for item in mem_by_subject.get(subject_key, [])
+            if _memory_relevance(item, subject_key) >= 0.40
         ]
         relationship_reasons: List[str] = []
         for item in entity_memories:
@@ -927,6 +932,7 @@ def create_server(
         subject_key: Optional[str] = None,
         attribute_key: Optional[str] = None,
         limit: int = 10,
+        offset: int = 0,
     ) -> ItemListResult:
         items = search_memories(
             query=query,
@@ -946,6 +952,7 @@ def create_server(
             subject_key=subject_key,
             attribute_key=attribute_key,
             limit=limit,
+            offset=offset,
         )
         return ItemListResult(items=items, count=len(items))
 
@@ -960,6 +967,7 @@ def create_server(
         tags: Optional[list[str]] = None,
         include_archived: bool = False,
         limit: int = 10,
+        offset: int = 0,
     ) -> ItemListResult:
         items = search_memories_by_time_range(
             user_code=user_code,
@@ -971,6 +979,7 @@ def create_server(
             tags=list(tags or []),
             include_archived=include_archived,
             limit=limit,
+            offset=offset,
         )
         return ItemListResult(items=items, count=len(items))
 
@@ -1104,6 +1113,7 @@ def create_server(
         subject_key: Optional[str] = None,
         include_archived: bool = False,
         limit: int = 10,
+        offset: int = 0,
     ) -> ItemListResult:
         items = search_entities(
             query=query,
@@ -1111,6 +1121,7 @@ def create_server(
             subject_key=subject_key,
             include_archived=include_archived,
             limit=limit,
+            offset=offset,
         )
         return ItemListResult(items=items, count=len(items))
 
@@ -1121,6 +1132,7 @@ def create_server(
         subject_key: Optional[str] = None,
         include_archived: bool = False,
         limit: int = 10,
+        offset: int = 0,
     ) -> ItemListResult:
         items = search_entity_relationships(
             query=query,
@@ -1128,6 +1140,7 @@ def create_server(
             subject_key=subject_key,
             include_archived=include_archived,
             limit=limit,
+            offset=offset,
         )
         return ItemListResult(items=items, count=len(items))
 

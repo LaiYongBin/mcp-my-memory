@@ -531,3 +531,151 @@ class MaintainMemoryStoreBatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UpsertMemoryGovernanceTests(unittest.TestCase):
+    def test_upsert_memory_calls_governance_once(self):
+        """upsert_memory 应只调用一次 apply_memory_governance（消除冗余调用）。"""
+        from service import memory_ops
+        from unittest.mock import patch, MagicMock
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor = MagicMock(return_value=mock_cur)
+        mock_row = {
+            "id": 1, "user_code": "test", "title": "t", "content": "c",
+            "memory_type": "fact", "category": None, "summary": None,
+            "tags": [], "source_type": "manual", "source_ref": None,
+            "confidence": 0.7, "importance": 5, "status": "active",
+            "is_explicit": False, "valid_from": None, "valid_to": None,
+            "subject_key": None, "related_subject_key": None, "attribute_key": None,
+            "value_text": None, "conflict_scope": None, "sensitivity_level": "normal",
+            "disclosure_policy": None, "lifecycle_state": "active", "stability_score": 0.5,
+            "sentiment": None, "conflict_with_id": None, "supersedes_id": None,
+            "created_at": None, "updated_at": None, "last_recalled_at": None,
+            "deleted_at": None, "recall_count": 0,
+        }
+        mock_cur.fetchone.return_value = mock_row
+
+        with patch("service.memory_ops.get_conn", return_value=mock_conn), \
+             patch("service.memory_ops._resolve_user", return_value="test"), \
+             patch("service.memory_ops.find_existing_memory", return_value=None), \
+             patch("service.memory_ops._normalize_memory_taxonomy", return_value={
+                 "memory_type": "fact", "source_type": "manual",
+                 "category": "context", "attribute_key": "",
+             }), \
+             patch("service.memory_ops.apply_memory_governance",
+                   side_effect=lambda x: {**x, "_governed": True,
+                                          "sensitivity_level": "normal",
+                                          "disclosure_policy": "normal",
+                                          "lifecycle_state": "active",
+                                          "stability_score": 0.5}) as mock_gov, \
+             patch("service.memory_ops._entity_graph_executor") as mock_exec, \
+             patch("service.memory_ops.refresh_memory_embedding"):
+            mock_exec.submit = MagicMock()
+            memory_ops.upsert_memory({"title": "t", "content": "c"}, defer_embedding=True)
+
+        # 关键断言：apply_memory_governance 应被调用 2 次（预处理 + RETURNING），
+        # 而不是 3 次（第三次是冗余的 return apply_memory_governance(result)）
+        self.assertEqual(mock_gov.call_count, 2,
+                         f"apply_memory_governance 应被调用 2 次，实际 {mock_gov.call_count} 次")
+
+
+class MarkMemoriesRecalledTests(unittest.TestCase):
+    def test_lifecycle_update_uses_unnest_not_case_when(self):
+        """mark_memories_recalled 的 lifecycle_state 更新应使用 UNNEST，不应用字符串拼接的 CASE WHEN。"""
+        import inspect
+        from service import memory_ops
+        source = inspect.getsource(memory_ops.mark_memories_recalled)
+        self.assertNotIn("CASE WHEN id =", source,
+                         "mark_memories_recalled 不应在 SQL 中用字符串拼接嵌入 id（安全风险）")
+        self.assertIn("UNNEST", source,
+                      "mark_memories_recalled 应使用 UNNEST 批量更新 lifecycle_state")
+
+
+class DomainCacheInvalidationTests(unittest.TestCase):
+    def test_create_domain_value_clears_lookup_cache(self):
+        """_create_domain_value 写入后应清除 lookup_domain_value 缓存。"""
+        import inspect
+        from service import domain_registry
+        source = inspect.getsource(domain_registry._create_domain_value)
+        self.assertIn("cache_clear", source,
+                      "_create_domain_value 应在写入后调用 lookup_domain_value.cache_clear()")
+
+    def test_upsert_domain_alias_clears_lookup_cache(self):
+        """_upsert_domain_alias 写入后应清除 lookup_domain_alias 缓存。"""
+        import inspect
+        from service import domain_registry
+        source = inspect.getsource(domain_registry._upsert_domain_alias)
+        self.assertIn("cache_clear", source,
+                      "_upsert_domain_alias 应在写入后调用 lookup_domain_alias.cache_clear()")
+
+
+class EntityGraphAsyncTests(unittest.TestCase):
+    def test_upsert_memory_does_not_block_on_entity_graph(self):
+        """upsert_memory 调用后 sync_entity_graph_for_memory 应在后台执行，不阻塞主流程。"""
+        import inspect
+        from service import memory_ops
+        source = inspect.getsource(memory_ops.upsert_memory)
+        self.assertNotIn("sync_entity_graph_for_memory(result)", source,
+                         "upsert_memory 不应同步调用 sync_entity_graph_for_memory，应改为 fire-and-forget")
+
+
+class HybridSearchFilterTests(unittest.TestCase):
+    def test_search_memories_hybrid_accepts_subject_key(self):
+        """_search_memories_hybrid 应接受 subject_key 参数。"""
+        import inspect
+        from service.memory_ops import _search_memories_hybrid
+        sig = inspect.signature(_search_memories_hybrid)
+        self.assertIn("subject_key", sig.parameters,
+                      "_search_memories_hybrid 应支持 subject_key 过滤参数")
+
+    def test_search_memories_hybrid_accepts_attribute_key(self):
+        """_search_memories_hybrid 应接受 attribute_key 参数。"""
+        import inspect
+        from service.memory_ops import _search_memories_hybrid
+        sig = inspect.signature(_search_memories_hybrid)
+        self.assertIn("attribute_key", sig.parameters,
+                      "_search_memories_hybrid 应支持 attribute_key 过滤参数")
+
+    def test_search_memories_hybrid_accepts_sentiment(self):
+        """_search_memories_hybrid 应接受 sentiment 参数。"""
+        import inspect
+        from service.memory_ops import _search_memories_hybrid
+        sig = inspect.signature(_search_memories_hybrid)
+        self.assertIn("sentiment", sig.parameters,
+                      "_search_memories_hybrid 应支持 sentiment 过滤参数")
+
+    def test_search_memories_forwards_all_filters_to_hybrid(self):
+        """search_memories 调用 _search_memories_hybrid 时应透传所有过滤参数。"""
+        import inspect
+        from service import memory_ops
+        source = inspect.getsource(memory_ops.search_memories)
+        self.assertIn("subject_key=subject_key", source,
+                      "search_memories 调用 _search_memories_hybrid 应透传 subject_key")
+        self.assertIn("attribute_key=attribute_key", source,
+                      "search_memories 调用 _search_memories_hybrid 应透传 attribute_key")
+        self.assertIn("sentiment=sentiment", source,
+                      "search_memories 调用 _search_memories_hybrid 应透传 sentiment")
+
+
+class PaginationTests(unittest.TestCase):
+    def test_search_memories_accepts_offset(self):
+        """search_memories 应接受 offset 分页参数。"""
+        import inspect
+        from service.memory_ops import search_memories
+        sig = inspect.signature(search_memories)
+        self.assertIn("offset", sig.parameters,
+                      "search_memories 应支持 offset 参数")
+
+    def test_search_memories_by_time_range_accepts_offset(self):
+        """search_memories_by_time_range 应接受 offset 分页参数。"""
+        import inspect
+        from service.memory_ops import search_memories_by_time_range
+        sig = inspect.signature(search_memories_by_time_range)
+        self.assertIn("offset", sig.parameters,
+                      "search_memories_by_time_range 应支持 offset 参数")

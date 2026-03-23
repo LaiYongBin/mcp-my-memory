@@ -1,6 +1,7 @@
 """Core PostgreSQL memory operations."""
 
 import json
+import concurrent.futures as _cf
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -51,6 +52,9 @@ TIME_FIELD_SQL = {
 
 
 logger = logging.getLogger(__name__)
+
+# 实体图后台更新线程池（fire-and-forget）
+_entity_graph_executor = _cf.ThreadPoolExecutor(max_workers=4, thread_name_prefix="entity_graph")
 
 
 def _resolve_user(user_code: Optional[str]) -> str:
@@ -314,6 +318,7 @@ def search_memories(
     subject_key: Optional[str] = None,
     attribute_key: Optional[str] = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
     query_vec: Optional[List[float]] = None
@@ -336,6 +341,9 @@ def search_memories(
             memory_type=memory_type,
             tags=tags,
             include_archived=include_archived,
+            subject_key=subject_key,
+            attribute_key=attribute_key,
+            sentiment=sentiment,
         )
 
     tags = tags or []
@@ -418,9 +426,9 @@ def search_memories(
         FROM memory_record
         WHERE {where_sql}
         ORDER BY rank_score DESC, importance DESC, confidence DESC, is_explicit DESC, updated_at DESC
-        LIMIT %s
+        LIMIT %s OFFSET %s
     """
-    params = select_params + where_params + [limit]
+    params = select_params + where_params + [limit, offset]
 
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
@@ -493,6 +501,7 @@ def search_memories_by_time_range(
     tags: Optional[List[str]] = None,
     include_archived: bool = False,
     limit: int = 10,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     if time_field not in TIME_FIELD_SQL:
         raise ValueError(f"unsupported time field: {time_field}")
@@ -540,11 +549,19 @@ def search_memories_by_time_range(
             FROM memory_record
             WHERE {where_sql}
             ORDER BY {field_sql} DESC, updated_at DESC, id DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
             """,
-            params + [limit],
+            params + [limit, offset],
         )
         return [apply_memory_governance(dict(row)) for row in cur.fetchall()]
+
+
+def _fire_and_forget_entity_sync(memory: Dict[str, Any]) -> None:
+    """后台执行实体图同步，异常不传播到调用方。"""
+    try:
+        sync_entity_graph_for_memory(memory)
+    except Exception as e:
+        logger.debug("background entity graph sync failed: %s", e)
 
 
 def upsert_memory(payload: Dict[str, Any], *, defer_embedding: bool = False) -> Dict[str, Any]:
@@ -697,11 +714,8 @@ def upsert_memory(payload: Dict[str, Any], *, defer_embedding: bool = False) -> 
                 refresh_memory_embedding(int(row["id"]), resolved_user, embedding_source)
         except Exception:
             pass
-    try:
-        sync_entity_graph_for_memory(result)
-    except Exception:
-        pass
-    return apply_memory_governance(result)
+    _entity_graph_executor.submit(_fire_and_forget_entity_sync, result)
+    return result
 
 
 def mark_memories_recalled(memory_ids: List[int], user_code: Optional[str] = None) -> None:
@@ -725,20 +739,20 @@ def mark_memories_recalled(memory_ids: List[int], user_code: Optional[str] = Non
             (resolved_user, unique_ids),
         )
         rows = [dict(row) for row in cur.fetchall()]
-        # 批量 CASE WHEN 更新 lifecycle_state，避免 N 次逐条 UPDATE
         if rows:
-            case_parts = " ".join(
-                f"WHEN id = {row['id']} THEN %s" for row in rows
-            )
-            state_values = [derive_lifecycle_state(row) for row in rows]
             ids = [row["id"] for row in rows]
+            state_values = [derive_lifecycle_state(row) for row in rows]
             cur.execute(
-                f"""
+                """
                 UPDATE memory_record
-                SET lifecycle_state = CASE {case_parts} END
-                WHERE id = ANY(%s)
+                SET lifecycle_state = data.lifecycle_state
+                FROM (
+                    SELECT UNNEST(%s::int[]) AS id,
+                           UNNEST(%s::text[]) AS lifecycle_state
+                ) AS data
+                WHERE memory_record.id = data.id
                 """,
-                state_values + [ids],
+                (ids, state_values),
             )
         conn.commit()
 
@@ -1087,6 +1101,9 @@ def _search_memories_hybrid(
     memory_type: Optional[str] = None,
     tags: Optional[List[str]] = None,
     include_archived: bool = False,
+    subject_key: Optional[str] = None,
+    attribute_key: Optional[str] = None,
+    sentiment: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     archived_filter = "" if include_archived else "AND mr.status != 'archived'"
     extra_conditions = ""
@@ -1097,6 +1114,15 @@ def _search_memories_hybrid(
     if tags:
         extra_conditions += " AND mr.tags ?| %s"
         extra_params.append(tags)
+    if subject_key:
+        extra_conditions += " AND mr.subject_key = %s"
+        extra_params.append(subject_key)
+    if attribute_key:
+        extra_conditions += " AND mr.attribute_key = %s"
+        extra_params.append(attribute_key)
+    if sentiment:
+        extra_conditions += " AND mr.sentiment = %s"
+        extra_params.append(sentiment)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             f"""

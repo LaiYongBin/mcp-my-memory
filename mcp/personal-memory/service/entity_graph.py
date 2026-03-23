@@ -527,6 +527,7 @@ def search_entities(
     subject_key: Optional[str] = None,
     include_archived: bool = False,
     limit: int = 10,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
     conditions = ["user_code = %s"]
@@ -569,9 +570,9 @@ def search_entities(
             FROM entity_profile
             WHERE {' AND '.join(conditions)}
             ORDER BY memory_count DESC, updated_at DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
             """,
-            params + [limit],
+            params + [limit, offset],
         )
         return [dict(row) for row in cur.fetchall()]
 
@@ -607,6 +608,7 @@ def search_entity_relationships(
     subject_key: Optional[str] = None,
     include_archived: bool = False,
     limit: int = 10,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
     conditions = ["e.user_code = %s"]
@@ -656,8 +658,8 @@ def search_entity_relationships(
              AND p.subject_key = e.target_subject_key
             WHERE {' AND '.join(conditions)}
             ORDER BY e.evidence_count DESC, e.updated_at DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
             """,
-            params + [limit],
+            params + [limit, offset],
         )
         return [dict(row) for row in cur.fetchall()]
