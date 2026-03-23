@@ -151,7 +151,7 @@ def _extract_json(text: str) -> str:
     return stripped
 
 
-def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[Dict[str, Any]]) -> str:
+def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[Dict[str, Any]], topic_hint: Optional[str] = None) -> str:
     schema = [
         {
             "category": "memory category",
@@ -171,6 +171,7 @@ def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[
             "sentiment": "neutral",
         }
     ]
+    topic_hint_line = f"当前话题提示：{topic_hint}\n\n" if topic_hint else ""
     return (
         "你是个人记忆分析器。请从下面这轮对话里提取真正值得记忆的点。\n"
         "不要按固定领域关键词判断，要基于语义理解。\n"
@@ -191,9 +192,10 @@ def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[
         "14. 如果用户只是弱表达、一次性表达、临时情绪，优先降低 confidence 或改成 ignore/working_memory。\n"
         "15. 输出必须是 JSON 数组，不要任何额外说明。\n"
         "16. 每个记忆点还需包含 sentiment 字段，值为 neutral/positive/negative/mixed 之一，表示该记忆对用户的情感倾向。\n\n"
+        f"最近已有记忆:\n{json.dumps(recent_memories, ensure_ascii=False, default=str)}\n\n"
+        f"{topic_hint_line}"
         f"当前用户输入:\n{user_text}\n\n"
         f"当前助手回复:\n{assistant_text}\n\n"
-        f"最近已有记忆:\n{json.dumps(recent_memories, ensure_ascii=False, default=str)}\n\n"
         f"输出 schema 示例:\n{json.dumps(schema, ensure_ascii=False)}"
     )
 
@@ -506,6 +508,7 @@ def analyze_turn(
     assistant_text: str = "",
     user_code: Optional[str] = None,
     session_key: str = DEFAULT_SESSION_KEY,
+    topic_hint: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
     cleaned = _clean(user_text)
@@ -518,6 +521,7 @@ def analyze_turn(
                 user_text=cleaned,
                 assistant_text=_clean(assistant_text),
                 recent_memories=_recent_memory_context(resolved_user),
+                topic_hint=topic_hint,
             )
             parsed = _call_analyzer_model(prompt)
             normalized = [_normalize_item(item) for item in parsed]

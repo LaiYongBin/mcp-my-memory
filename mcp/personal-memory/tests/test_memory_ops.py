@@ -949,3 +949,32 @@ class RecentMemoryCacheTTLTests(unittest.TestCase):
         source = inspect.getsource(memory_ops.upsert_memory)
         self.assertIn("_recent_memory_cache", source,
                       "upsert_memory 应在写入后清除 _recent_memory_cache")
+
+
+class AnalyzeTurnTopicHintTests(unittest.TestCase):
+    def test_analyze_turn_accepts_topic_hint(self):
+        """analyze_turn 应接受 topic_hint 参数。"""
+        import inspect
+        from service.analyzer import analyze_turn
+        sig = inspect.signature(analyze_turn)
+        self.assertIn("topic_hint", sig.parameters,
+                      "analyze_turn 应支持 topic_hint 参数")
+
+    def test_analysis_prompt_includes_topic_hint(self):
+        """_analysis_prompt 应在 prompt 中包含 topic_hint 内容。"""
+        from service.analyzer import _analysis_prompt
+        prompt = _analysis_prompt(
+            user_text="我喜欢咖啡",
+            assistant_text="好的",
+            recent_memories=[],
+            topic_hint="饮品偏好",
+        )
+        self.assertIn("饮品偏好", prompt)
+
+    def test_capture_cycle_passes_topic_hint_to_analyze_turn(self):
+        """run_capture_cycle 应将 topic_hint 透传给 analyze_turn。"""
+        import inspect
+        from service import capture_cycle
+        source = inspect.getsource(capture_cycle.run_capture_cycle)
+        self.assertIn("topic_hint=topic_hint", source,
+                      "run_capture_cycle 调用 analyze_turn 时应透传 topic_hint")

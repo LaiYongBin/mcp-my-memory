@@ -428,6 +428,7 @@ def run_capture_cycle(
     session_key: str = "default",
     source_ref: Optional[str] = None,
     consolidate: bool = True,
+    topic_hint: Optional[str] = None,
 ) -> Dict[str, Any]:
     resolved_user = _resolve_user(user_code)
     events = []
@@ -464,6 +465,7 @@ def run_capture_cycle(
         assistant_text=assistant_text,
         user_code=resolved_user,
         session_key=session_key,
+        topic_hint=topic_hint,
     )
     analysis_results = save_analysis_results(
         user_code=resolved_user,
