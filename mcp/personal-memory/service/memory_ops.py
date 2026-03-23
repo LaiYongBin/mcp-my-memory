@@ -807,26 +807,32 @@ def maintain_memory_store(
                     "changed_fields": changed_fields,
                 }
             )
-            if not dry_run:
-                cur.execute(
-                    """
-                    UPDATE memory_record
-                    SET lifecycle_state = %s,
-                        sensitivity_level = %s,
-                        disclosure_policy = %s,
-                        stability_score = %s,
-                        updated_at = now()
-                    WHERE id = %s AND user_code = %s
-                    """,
-                    (
-                        governed.get("lifecycle_state"),
-                        governed.get("sensitivity_level"),
-                        governed.get("disclosure_policy"),
-                        governed.get("stability_score"),
-                        row["id"],
-                        resolved_user,
-                    ),
-                )
+        if not dry_run and updates:
+            # UNNEST 批量更新，避免 N 次逐条 UPDATE
+            ids = [u["id"] for u in updates]
+            lc_vals = [u["lifecycle_state"] for u in updates]
+            sl_vals = [u["sensitivity_level"] for u in updates]
+            dp_vals = [u["disclosure_policy"] for u in updates]
+            ss_vals = [u["stability_score"] for u in updates]
+            cur.execute(
+                """
+                UPDATE memory_record
+                SET lifecycle_state = data.lifecycle_state,
+                    sensitivity_level = data.sensitivity_level,
+                    disclosure_policy = data.disclosure_policy,
+                    stability_score = data.stability_score,
+                    updated_at = now()
+                FROM (
+                    SELECT UNNEST(%s::int[]) AS id,
+                           UNNEST(%s::text[]) AS lifecycle_state,
+                           UNNEST(%s::text[]) AS sensitivity_level,
+                           UNNEST(%s::text[]) AS disclosure_policy,
+                           UNNEST(%s::float[]) AS stability_score
+                ) AS data
+                WHERE memory_record.id = data.id AND memory_record.user_code = %s
+                """,
+                (ids, lc_vals, sl_vals, dp_vals, ss_vals, resolved_user),
+            )
         if not dry_run:
             conn.commit()
     return {

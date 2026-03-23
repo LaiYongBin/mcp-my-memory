@@ -487,5 +487,47 @@ class ArchiveMemoryEfficiencyTests(unittest.TestCase):
             mock_get_memory.assert_not_called()
 
 
+class MaintainMemoryStoreBatchTests(unittest.TestCase):
+    def test_maintain_memory_store_uses_single_batch_update(self):
+        """maintain_memory_store 非 dry_run 时应合并为单次批量 SQL，而非逐条 UPDATE。"""
+        from service import memory_ops
+        from unittest.mock import patch, MagicMock
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor = MagicMock(return_value=mock_cur)
+        # 3 条记忆，lifecycle_state 从 "stale" 变为 "active" 均需更新
+        rows = [
+            {"id": i, "user_code": "test", "title": f"t{i}", "content": f"c{i}",
+             "memory_type": "fact", "category": "context", "summary": None,
+             "tags": [], "source_type": "manual", "source_ref": None,
+             "confidence": 0.7, "importance": 5, "status": "active",
+             "is_explicit": False, "valid_from": None, "valid_to": None,
+             "subject_key": None, "related_subject_key": None, "attribute_key": None,
+             "value_text": None, "conflict_scope": None, "sensitivity_level": "normal",
+             "disclosure_policy": None, "lifecycle_state": "stale",
+             "stability_score": 0.2, "sentiment": None, "conflict_with_id": None,
+             "supersedes_id": None, "created_at": None, "updated_at": None,
+             "last_recalled_at": None, "deleted_at": None, "recall_count": 0}
+            for i in range(1, 4)
+        ]
+        mock_cur.fetchall.return_value = rows
+        with patch("service.memory_ops.get_conn", return_value=mock_conn), \
+             patch("service.memory_ops._resolve_user", return_value="test"), \
+             patch("service.memory_ops.apply_memory_governance",
+                   side_effect=lambda r: {**r, "lifecycle_state": "active",
+                                          "stability_score": 0.5,
+                                          "sensitivity_level": "normal",
+                                          "disclosure_policy": None}):
+            memory_ops.maintain_memory_store(user_code="test", dry_run=False)
+        # 核心断言：execute 调用次数应为 2（1次 SELECT + 1次批量 UPDATE）
+        # 而非 4（1次 SELECT + 3次逐条 UPDATE）
+        self.assertEqual(mock_cur.execute.call_count, 2,
+                         f"应只执行 2 次 SQL，但实际执行了 {mock_cur.execute.call_count} 次")
+
+
 if __name__ == "__main__":
     unittest.main()
