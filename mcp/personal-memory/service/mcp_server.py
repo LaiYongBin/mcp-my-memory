@@ -50,6 +50,7 @@ from service.memory_ops import (
     export_memory_records,
     fetch_source_turns,
     generate_memory_report,
+    get_memory,
     get_memory_timeline,
     get_stale_for_challenge,
     list_review_candidates,
@@ -894,6 +895,16 @@ def create_server(
         port=port or _service_port(),
         streamable_http_path=streamable_http_path or "/mcp",
     )
+
+    @server.tool(name="get_memory", structured_output=True)
+    def get_memory_tool(
+        id: int,
+        user_code: Optional[str] = None,
+    ) -> MemoryMutationResult:
+        memory = get_memory(id, user_code)
+        if not memory:
+            raise ValueError(f"memory {id} not found")
+        return MemoryMutationResult(memory=memory)
 
     @server.tool(name="search_memories", structured_output=True)
     def search_memories_tool(

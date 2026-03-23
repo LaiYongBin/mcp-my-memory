@@ -49,6 +49,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
                 "reject_review_candidate",
                 "list_working_memories",
                 "update_entity_profile",
+                "get_memory",
             },
             names,
         )
