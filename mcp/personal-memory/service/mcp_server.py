@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import concurrent.futures
 import logging
 import os
@@ -20,7 +21,7 @@ from service.constants import (
     SOURCE_MANUAL,
     STATUS_ACTIVE,
 )
-from service.capture_cycle import batch_ingest_turns, run_capture_cycle
+from service.capture_cycle import batch_ingest_turns, run_capture_cycle, _pair_turns
 from service.context_snapshots import (
     search_context_snapshots,
     search_recent_context_summaries,
@@ -1364,15 +1365,32 @@ def create_server(
         analyze: bool = True,
         rate_limit_ms: int = 500,
     ) -> IngestResult:
-        result = batch_ingest_turns(
-            turns=turns,
-            session_key=session_key,
-            user_code=user_code,
-            topic_hint=topic_hint,
-            analyze=analyze,
-            rate_limit_ms=rate_limit_ms,
+        from service.capture_cycle import _resolve_user as _cc_resolve_user
+        resolved_user = _cc_resolve_user(user_code)
+        pairs, failed = _pair_turns(turns)
+        ingested_turns = 0
+        created_memories = 0
+        loop = asyncio.get_event_loop()
+        for user_turn, assistant_turn in pairs:
+            result = await loop.run_in_executor(
+                None,
+                lambda u=user_turn, a=assistant_turn: run_capture_cycle(
+                    user_text=str(u.get("content") or ""),
+                    assistant_text=str(a.get("content") or ""),
+                    user_code=resolved_user,
+                    session_key=session_key,
+                    consolidate=False,
+                ),
+            )
+            ingested_turns += 1
+            created_memories += int(result.get("persisted_count") or 0)
+            if rate_limit_ms > 0:
+                await asyncio.sleep(rate_limit_ms / 1000.0)
+        return IngestResult(
+            ingested_turns=ingested_turns,
+            created_memories=created_memories,
+            failed_turns=failed,
         )
-        return IngestResult(**result)
 
     return server
 
