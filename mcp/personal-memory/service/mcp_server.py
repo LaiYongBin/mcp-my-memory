@@ -6,6 +6,9 @@ import argparse
 import asyncio
 import concurrent.futures
 import logging
+
+# context sync 专用后台线程池（fire-and-forget）
+_context_sync_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="ctx-sync")
 import os
 import time as _time_module
 from typing import Any, Dict, List, Optional
@@ -873,9 +876,10 @@ def _execute_capture_turn(
         source_ref=source_ref,
         consolidate=consolidate,
     )
-    context = None
     if sync_context:
-        context = sync_session_context(
+        # fire-and-forget：将 LLM 摘要任务提交到后台线程，不等待结果
+        _context_sync_executor.submit(
+            sync_session_context,
             session_key=session_key,
             turns=None,
             user_code=user_code,
@@ -883,7 +887,7 @@ def _execute_capture_turn(
             source_ref=source_ref,
             extract_memory=False,
         )
-    return CaptureTurnResult(capture=capture, context=context)
+    return CaptureTurnResult(capture=capture, context=None)
 
 
 def create_server(

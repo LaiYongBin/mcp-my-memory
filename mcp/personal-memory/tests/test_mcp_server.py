@@ -202,17 +202,10 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             source_ref=None,
             consolidate=True,
         )
-        sync_session_context_mock.assert_called_once_with(
-            session_key="life-2026-03",
-            turns=None,
-            user_code=None,
-            topic_hint="通勤和运动",
-            source_ref=None,
-            extract_memory=False,
-        )
         self.assertTrue(structured["ok"])
         self.assertEqual(1, structured["capture"]["persisted_count"])
-        self.assertEqual(22, structured["context"]["segment_snapshot"]["id"])
+        # fire-and-forget 后 context 为 None，不等待结果
+        self.assertIsNone(structured["context"])
 
     @patch("service.mcp_server.search_entities")
     async def test_search_entities_tool_delegates_to_entity_summary(self, search_entities_mock) -> None:
@@ -844,14 +837,6 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             session_key="life-2026-03",
             source_ref=None,
             consolidate=True,
-        )
-        sync_session_context_mock.assert_called_once_with(
-            session_key="life-2026-03",
-            turns=None,
-            user_code=None,
-            topic_hint="通勤和运动",
-            source_ref=None,
-            extract_memory=False,
         )
         self.assertIsNotNone(structured["executed_capture"])
         self.assertEqual(1, structured["executed_capture"]["capture"]["persisted_count"])
