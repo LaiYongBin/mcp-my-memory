@@ -97,6 +97,11 @@ def _cached_two_hop(source_keys: List[str], user_code: Optional[str]) -> List[Di
         exclude_subject_keys=source_keys,
         user_code=user_code,
     )
+    if len(_two_hop_cache) > 1000:
+        now = _time_module.monotonic()
+        expired = [k for k, v in _two_hop_cache.items() if v[1] < now]
+        for k in expired:
+            _two_hop_cache.pop(k, None)
     _two_hop_cache[key] = (result, _time_module.monotonic() + _TWO_HOP_TTL)
     return result
 
@@ -703,7 +708,6 @@ def _build_recall_result(
 
     # E3: 查找二阶实体
     source_keys = [e["subject_key"] for e in related_entities if e.get("subject_key")]
-    exclude_keys = [e["subject_key"] for e in related_entities if e.get("subject_key")]
     if source_keys:
         two_hop_rows = _cached_two_hop(source_keys, user_code)
         for row in two_hop_rows:
