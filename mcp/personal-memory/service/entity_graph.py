@@ -261,11 +261,13 @@ def refresh_entity_graph_for_subject(*, user_code: Optional[str], subject_key: O
             """,
             (resolved_user, cleaned_subject),
         )
-        for row in memories:
-            related_subject_key = str(row.get("related_subject_key") or "").strip()
-            if not related_subject_key or related_subject_key == cleaned_subject:
-                continue
-            cur.execute(
+        related_rows = [
+            row for row in memories
+            if str(row.get("related_subject_key") or "").strip()
+            and str(row.get("related_subject_key") or "").strip() != cleaned_subject
+        ]
+        if related_rows:
+            cur.executemany(
                 """
                 INSERT INTO entity_profile (
                     user_code, subject_key, display_name, relation_type, memory_count,
@@ -282,27 +284,45 @@ def refresh_entity_graph_for_subject(*, user_code: Optional[str], subject_key: O
                     relation_type = COALESCE(entity_profile.relation_type, EXCLUDED.relation_type),
                     updated_at = now()
                 """,
-                (
-                    resolved_user,
-                    related_subject_key,
-                    infer_display_name(related_subject_key, []),
-                    infer_relation_type(related_subject_key),
-                    str(row.get("sensitivity_level") or "normal"),
-                    str(row.get("disclosure_policy") or "normal"),
-                    row.get("id"),
-                    row.get("created_at"),
-                    row.get("updated_at") or row.get("created_at"),
-                ),
+                [
+                    (
+                        resolved_user,
+                        str(row["related_subject_key"]).strip(),
+                        infer_display_name(str(row["related_subject_key"]).strip(), []),
+                        infer_relation_type(str(row["related_subject_key"]).strip()),
+                        str(row.get("sensitivity_level") or "normal"),
+                        str(row.get("disclosure_policy") or "normal"),
+                        row.get("id"),
+                        row.get("created_at"),
+                        row.get("updated_at") or row.get("created_at"),
+                    )
+                    for row in related_rows
+                ],
             )
+            related_subject_keys = [str(row["related_subject_key"]).strip() for row in related_rows]
+            relation_types = [
+                infer_edge_relation_type({
+                    "subject_key": cleaned_subject,
+                    "related_subject_key": str(row["related_subject_key"]).strip(),
+                    "attribute_key": row.get("attribute_key") or "",
+                })
+                for row in related_rows
+            ]
+            sensitivity_levels = [str(row.get("sensitivity_level") or "normal") for row in related_rows]
+            disclosure_policies = [str(row.get("disclosure_policy") or "normal") for row in related_rows]
+            latest_memory_ids = [row.get("id") for row in related_rows]
+
             cur.execute(
                 """
                 INSERT INTO entity_edge (
                     user_code, source_subject_key, target_subject_key, relation_type,
                     evidence_count, sensitivity_level, disclosure_policy, latest_memory_id, status
-                ) VALUES (
-                    %s, %s, %s, %s,
-                    1, %s, %s, %s, 'active'
                 )
+                SELECT %s, %s, t.target_subject_key, t.relation_type,
+                       1, t.sensitivity_level, t.disclosure_policy, t.latest_memory_id, 'active'
+                FROM UNNEST(
+                    %s::text[], %s::text[], %s::text[], %s::text[], %s::int[]
+                ) AS t(target_subject_key, relation_type, sensitivity_level, disclosure_policy, latest_memory_id)
                 ON CONFLICT (user_code, source_subject_key, target_subject_key, relation_type, status)
                 DO UPDATE SET
                     evidence_count = entity_edge.evidence_count + 1,
@@ -314,17 +334,11 @@ def refresh_entity_graph_for_subject(*, user_code: Optional[str], subject_key: O
                 (
                     resolved_user,
                     cleaned_subject,
-                    related_subject_key,
-                    infer_edge_relation_type(
-                        {
-                            "subject_key": cleaned_subject,
-                            "related_subject_key": related_subject_key,
-                            "attribute_key": row.get("attribute_key") or "",   # 新增
-                        }
-                    ),
-                    str(row.get("sensitivity_level") or "normal"),
-                    str(row.get("disclosure_policy") or "normal"),
-                    row.get("id"),
+                    related_subject_keys,
+                    relation_types,
+                    sensitivity_levels,
+                    disclosure_policies,
+                    latest_memory_ids,
                 ),
             )
         conn.commit()

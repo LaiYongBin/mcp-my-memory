@@ -1365,3 +1365,13 @@ class ContextSyncLoggingTests(unittest.TestCase):
         source = inspect.getsource(mcp_server._execute_capture_turn)
         self.assertIn("add_done_callback", source,
                       "_execute_capture_turn 应对 future 添加 done_callback 记录异常")
+
+
+class EntityGraphBatchInsertTests(unittest.TestCase):
+    def test_refresh_entity_graph_uses_unnest_not_loop(self):
+        """refresh_entity_graph_for_subject 应使用 UNNEST 批量 INSERT，不应在循环中逐条 INSERT。"""
+        import inspect
+        from service import entity_graph
+        source = inspect.getsource(entity_graph.refresh_entity_graph_for_subject)
+        self.assertIn("UNNEST", source,
+                      "refresh_entity_graph_for_subject 应使用 UNNEST 批量 INSERT entity_edge")
