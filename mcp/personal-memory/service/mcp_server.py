@@ -1100,6 +1100,7 @@ def create_server(
         session_key: Optional[str] = None,
         snapshot_levels: Optional[list[str]] = None,
         limit: int = 10,
+        offset: int = 0,
     ) -> ItemListResult:
         items = search_recent_context_summaries(
             user_code=user_code,
@@ -1108,6 +1109,7 @@ def create_server(
             snapshot_levels=list(snapshot_levels or [SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC]),
             recent_hours=recent_hours,
             limit=limit,
+            offset=offset,
         )
         return ItemListResult(items=items, count=len(items))
 
@@ -1207,6 +1209,7 @@ def create_server(
         session_key: Optional[str] = None,
         snapshot_level: Optional[str] = None,
         limit: int = 10,
+        offset: int = 0,
     ) -> ItemListResult:
         items = search_context_snapshots(
             query=query,
@@ -1214,6 +1217,7 @@ def create_server(
             session_key=session_key,
             snapshot_level=snapshot_level,
             limit=limit,
+            offset=offset,
         )
         return ItemListResult(items=items, count=len(items))
 

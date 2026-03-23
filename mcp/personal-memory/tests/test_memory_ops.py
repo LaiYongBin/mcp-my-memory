@@ -868,3 +868,33 @@ class ReviewCandidateTimeoutTests(unittest.TestCase):
         sig = inspect.signature(maintain_memory_store)
         self.assertIn("auto_resolve_review_days", sig.parameters,
                       "maintain_memory_store 应接受 auto_resolve_review_days 参数")
+
+
+class ContextSearchOffsetTests(unittest.TestCase):
+    def test_search_context_snapshots_accepts_offset(self):
+        import inspect
+        from service.context_snapshots import search_context_snapshots
+        sig = inspect.signature(search_context_snapshots)
+        self.assertIn("offset", sig.parameters,
+                      "search_context_snapshots 应接受 offset 分页参数")
+
+    def test_search_context_snapshots_offset_default_zero(self):
+        import inspect
+        from service.context_snapshots import search_context_snapshots
+        sig = inspect.signature(search_context_snapshots)
+        self.assertEqual(0, sig.parameters["offset"].default,
+                         "search_context_snapshots offset 默认值应为 0")
+
+    def test_search_recent_context_summaries_accepts_offset(self):
+        import inspect
+        from service.context_snapshots import search_recent_context_summaries
+        sig = inspect.signature(search_recent_context_summaries)
+        self.assertIn("offset", sig.parameters,
+                      "search_recent_context_summaries 应接受 offset 分页参数")
+
+    def test_search_recent_context_summaries_offset_default_zero(self):
+        import inspect
+        from service.context_snapshots import search_recent_context_summaries
+        sig = inspect.signature(search_recent_context_summaries)
+        self.assertEqual(0, sig.parameters["offset"].default,
+                         "search_recent_context_summaries offset 默认值应为 0")

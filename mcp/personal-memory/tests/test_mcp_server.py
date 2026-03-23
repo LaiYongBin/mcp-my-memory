@@ -312,6 +312,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             snapshot_levels=["segment", "topic"],
             recent_hours=72,
             limit=5,
+            offset=0,
         )
         self.assertEqual(1, structured["count"])
         self.assertEqual("最近在看中医", structured["items"][0]["topic"])

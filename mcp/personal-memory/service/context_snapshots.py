@@ -640,6 +640,7 @@ def search_context_snapshots(
     session_key: Optional[str] = None,
     snapshot_level: Optional[str] = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
     conditions = ["user_code = %s", f"status = '{STATUS_ACTIVE}'"]
@@ -676,9 +677,9 @@ def search_context_snapshots(
             FROM conversation_summary
             WHERE {where_sql}
             ORDER BY ended_at DESC NULLS LAST, updated_at DESC, id DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
             """,
-            params + [limit],
+            params + [limit, offset],
         )
         return [dict(row) for row in cur.fetchall()]
 
@@ -691,6 +692,7 @@ def search_recent_context_summaries(
     snapshot_levels: Optional[Sequence[str]] = None,
     recent_hours: int = 168,
     limit: int = 10,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
     levels = [str(level).strip() for level in (snapshot_levels or [SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC]) if str(level).strip()]
@@ -731,8 +733,8 @@ def search_recent_context_summaries(
             FROM conversation_summary
             WHERE {where_sql}
             ORDER BY coalesce(ended_at, updated_at, created_at) DESC, id DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
             """,
-            params + [limit],
+            params + [limit, offset],
         )
         return [dict(row) for row in cur.fetchall()]
