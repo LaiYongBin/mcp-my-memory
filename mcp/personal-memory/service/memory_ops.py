@@ -1244,15 +1244,14 @@ def revert_memory_to_version(
         cur.execute(
             """UPDATE memory_record
                SET title = %s, content = %s, summary = %s,
-                   value_text = %s, tags = %s::jsonb,
+                   value_text = %s, tags = %s,
                    confidence = %s, importance = %s,
-                   supersedes_id = %s, updated_at = now()
+                   updated_at = now()
                WHERE id = %s AND user_code = %s""",
             (
                 target["title"], target["content"], target.get("summary"),
-                target.get("value_text"), json.dumps(list(target.get("tags") or [])),
+                target.get("value_text"), Json(list(target.get("tags") or [])),
                 target.get("confidence"), target.get("importance"),
-                target_version_id,
                 memory_id, resolved_user,
             ),
         )
