@@ -1,9 +1,10 @@
 import os
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 
 def get_settings() -> Dict[str, Union[str, int]]:
@@ -19,15 +20,36 @@ def get_settings() -> Dict[str, Union[str, int]]:
     }
 
 
-def get_conn() -> psycopg.Connection:
-    settings = get_settings()
-    conn = psycopg.connect(
-        host=settings["host"],
-        port=settings["port"],
-        user=settings["user"],
-        password=settings["password"],
-        dbname=settings["database"],
-        row_factory=dict_row,
+def _make_conninfo() -> str:
+    s = get_settings()
+    return (
+        f"host={s['host']} port={s['port']} user={s['user']} "
+        f"password={s['password']} dbname={s['database']}"
     )
+
+
+def _configure_conn(conn: psycopg.Connection) -> None:
     register_vector(conn)
-    return conn
+
+
+_pool: Optional[ConnectionPool] = None
+
+
+def _get_pool() -> ConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool(
+            conninfo=_make_conninfo(),
+            min_size=2,
+            max_size=10,
+            configure=_configure_conn,
+            kwargs={"row_factory": dict_row},
+            open=False,  # 延迟打开，避免 import 时建立连接
+        )
+        _pool.open()
+    return _pool
+
+
+def get_conn() -> psycopg.Connection:
+    """返回池化连接的 context manager。用法与之前完全相同：with get_conn() as conn。"""
+    return _get_pool().connection()

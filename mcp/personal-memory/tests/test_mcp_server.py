@@ -1278,5 +1278,13 @@ class UpdateEntityProfileToolTests(unittest.TestCase):
                          "update_entity_profile_tool 不应有 summary 参数")
 
 
+class ConnectionPoolTests(unittest.TestCase):
+    def test_db_module_has_pool_variable(self):
+        """service.db 应有模块级 _pool 变量（证明使用了连接池模式）。"""
+        from service import db
+        self.assertTrue(hasattr(db, "_pool"),
+                        "service.db 应有模块级 _pool 变量")
+
+
 if __name__ == "__main__":
     unittest.main()
