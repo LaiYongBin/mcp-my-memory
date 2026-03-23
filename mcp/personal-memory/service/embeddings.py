@@ -110,6 +110,58 @@ def generate_embedding(text: str) -> Optional[List[float]]:
     return data["output"]["embeddings"][0]["embedding"]
 
 
+def generate_embeddings_batch(texts: List[str]) -> List[Optional[List[float]]]:
+    """批量生成 embedding，减少 HTTP 请求次数。返回与 texts 等长的列表，失败项为 None。"""
+    if not texts:
+        return []
+    if not embeddings_enabled():
+        return [None] * len(texts)
+    config = embedding_config()
+    base_url = str(config["base_url"]).rstrip("/")
+    if base_url.endswith("/api/v1"):
+        # DashScope 原生 API：支持 texts 批量传入
+        url = base_url + "/services/embeddings/text-embedding/text-embedding"
+        payload = {
+            "model": config["model"],
+            "input": {"texts": texts},
+            "parameters": {
+                "dimension": config["dimension"],
+                "output_type": "dense",
+            },
+        }
+    else:
+        # OpenAI 兼容 API：input 直接传 list
+        url = base_url + "/embeddings"
+        payload = {
+            "model": config["model"],
+            "input": texts,
+            "dimensions": config["dimension"],
+            "encoding_format": "float",
+        }
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + str(config["api_key"]),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30, context=_get_ssl_context()) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+        return [None] * len(texts)
+    try:
+        if "data" in data:
+            embeddings = data["data"]
+            return [item["embedding"] for item in embeddings]
+        embeddings = data["output"]["embeddings"]
+        return [item["embedding"] for item in embeddings]
+    except (KeyError, IndexError, TypeError):
+        return [None] * len(texts)
+
+
 def refresh_memory_embedding(memory_id: int, user_code: str, chunk_text: str) -> bool:
     embedding = generate_embedding(chunk_text)
     if not embedding:
