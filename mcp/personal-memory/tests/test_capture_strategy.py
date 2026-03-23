@@ -226,5 +226,67 @@ class WorkingMemoryPromotionTests(unittest.TestCase):
             mock_mark_promoted.assert_called_once_with(1, 42)
 
 
+class BatchIngestPairingTests(unittest.TestCase):
+    def _pair(self, turns):
+        from service.capture_cycle import _pair_turns
+        pairs, failed = _pair_turns(turns)
+        return pairs, failed
+
+    def test_standard_pairs(self) -> None:
+        turns = [
+            {"role": "user", "content": "你好"},
+            {"role": "assistant", "content": "您好！"},
+            {"role": "user", "content": "再见"},
+            {"role": "assistant", "content": "再见！"},
+        ]
+        pairs, failed = self._pair(turns)
+        self.assertEqual(2, len(pairs))
+        self.assertEqual([], failed)
+        self.assertEqual("你好", pairs[0][0]["content"])
+        self.assertEqual("您好！", pairs[0][1]["content"])
+
+    def test_trailing_user_gets_empty_assistant(self) -> None:
+        turns = [
+            {"role": "user", "content": "最后一句"},
+        ]
+        pairs, failed = self._pair(turns)
+        self.assertEqual(1, len(pairs))
+        self.assertEqual("最后一句", pairs[0][0]["content"])
+        self.assertEqual("", pairs[0][1]["content"])
+
+    def test_consecutive_assistants_merged(self) -> None:
+        turns = [
+            {"role": "assistant", "content": "部分一"},
+            {"role": "assistant", "content": "部分二"},
+            {"role": "user", "content": "用户说"},
+            {"role": "assistant", "content": "回复"},
+        ]
+        pairs, failed = self._pair(turns)
+        self.assertEqual(1, len(pairs))
+        self.assertIn("部分一", pairs[0][1]["content"])
+        self.assertIn("部分二", pairs[0][1]["content"])
+        self.assertIn("回复", pairs[0][1]["content"])
+
+    def test_trailing_assistant_ignored(self) -> None:
+        turns = [
+            {"role": "user", "content": "问题"},
+            {"role": "assistant", "content": "回答"},
+            {"role": "assistant", "content": "孤立的 assistant"},
+        ]
+        pairs, failed = self._pair(turns)
+        self.assertEqual(1, len(pairs))
+        self.assertEqual([], failed)
+
+    def test_unknown_role_goes_to_failed(self) -> None:
+        turns = [
+            {"role": "system", "content": "系统消息"},
+            {"role": "user", "content": "用户"},
+        ]
+        pairs, failed = self._pair(turns)
+        self.assertEqual(1, len(pairs))
+        self.assertEqual(1, len(failed))
+        self.assertEqual("unknown role", failed[0]["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()

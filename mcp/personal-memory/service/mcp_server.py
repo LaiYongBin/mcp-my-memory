@@ -18,7 +18,7 @@ from service.constants import (
     SOURCE_MANUAL,
     STATUS_ACTIVE,
 )
-from service.capture_cycle import run_capture_cycle
+from service.capture_cycle import batch_ingest_turns, run_capture_cycle
 from service.context_snapshots import (
     search_context_snapshots,
     search_recent_context_summaries,
@@ -60,6 +60,7 @@ from service.schemas import (
     ContextMutationResult,
     DomainMutationResult,
     ExportResult,
+    IngestResult,
     ItemListResult,
     MaintenanceResult,
     MemoryMutationResult,
@@ -1303,6 +1304,25 @@ def create_server(
     ) -> MemoryReport:
         result = generate_memory_report(user_code=user_code, period_days=period_days)
         return MemoryReport(**result)
+
+    @server.tool(name="batch_ingest_turns", structured_output=True)
+    async def batch_ingest_turns_tool(
+        turns: List[Dict[str, Any]],
+        session_key: str = "default",
+        user_code: Optional[str] = None,
+        topic_hint: Optional[str] = None,
+        analyze: bool = True,
+        rate_limit_ms: int = 500,
+    ) -> IngestResult:
+        result = batch_ingest_turns(
+            turns=turns,
+            session_key=session_key,
+            user_code=user_code,
+            topic_hint=topic_hint,
+            analyze=analyze,
+            rate_limit_ms=rate_limit_ms,
+        )
+        return IngestResult(**result)
 
     return server
 

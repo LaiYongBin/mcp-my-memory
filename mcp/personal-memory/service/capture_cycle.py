@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from service.constants import (
     ACTION_LONG_TERM,
@@ -593,4 +594,82 @@ def run_capture_cycle(
         "evidence": evidence_items,
         "evidence_count": len(evidence_items),
         "consolidation": consolidation,
+    }
+
+
+def _pair_turns(turns: List[Dict]) -> Tuple[List[Tuple[Dict, Dict]], List[Dict]]:
+    """将 turns 列表配对为 (user_turn, assistant_turn) 列表。"""
+    pairs: List[Tuple[Dict, Dict]] = []
+    failed: List[Dict] = []
+    pending_assistant_content: List[str] = []
+
+    i = 0
+    while i < len(turns):
+        turn = turns[i]
+        role = turn.get("role")
+
+        if role not in ("user", "assistant"):
+            failed.append({"index": i, "reason": "unknown role", "turn": turn})
+            i += 1
+            continue
+
+        if role == "assistant":
+            pending_assistant_content.append(turn.get("content") or "")
+            i += 1
+            continue
+
+        # role == "user"
+        user_turn = turn
+        i += 1
+
+        if i < len(turns) and turns[i].get("role") == "assistant":
+            combined_parts = pending_assistant_content + [turns[i].get("content") or ""]
+            assistant_turn = {**turns[i], "content": "\n".join(combined_parts).strip()}
+            pending_assistant_content = []
+            i += 1
+        elif pending_assistant_content:
+            assistant_turn = {"role": "assistant", "content": "\n".join(pending_assistant_content).strip()}
+            pending_assistant_content = []
+        else:
+            assistant_turn = {"role": "assistant", "content": ""}
+
+        pairs.append((user_turn, assistant_turn))
+
+    # 末尾孤立 assistant 忽略
+    return pairs, failed
+
+
+def batch_ingest_turns(
+    *,
+    turns: List[Dict],
+    session_key: str,
+    user_code: Optional[str] = None,
+    topic_hint: Optional[str] = None,
+    analyze: bool = True,
+    rate_limit_ms: int = 500,
+) -> Dict[str, Any]:
+    """批量将历史对话 turns 导入记忆系统。"""
+    resolved_user = _resolve_user(user_code)
+    pairs, failed = _pair_turns(turns)
+
+    ingested_turns = 0
+    created_memories = 0
+
+    for user_turn, assistant_turn in pairs:
+        result = run_capture_cycle(
+            user_text=str(user_turn.get("content") or ""),
+            assistant_text=str(assistant_turn.get("content") or ""),
+            user_code=resolved_user,
+            session_key=session_key,
+            consolidate=False,
+        )
+        ingested_turns += 1
+        created_memories += int(result.get("persisted_count") or 0)
+        if rate_limit_ms > 0:
+            time.sleep(rate_limit_ms / 1000.0)
+
+    return {
+        "ingested_turns": ingested_turns,
+        "created_memories": created_memories,
+        "failed_turns": failed,
     }
