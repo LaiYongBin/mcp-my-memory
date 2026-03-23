@@ -716,6 +716,12 @@ def upsert_memory(payload: Dict[str, Any], *, defer_embedding: bool = False) -> 
         except Exception:
             pass
     _entity_graph_executor.submit(_fire_and_forget_entity_sync, result)
+    # 清除 analyzer 的最近记忆缓存，确保下一轮分析能看到最新数据
+    try:
+        from service.analyzer import _recent_memory_cache
+        _recent_memory_cache.clear()
+    except Exception:
+        pass
     return result
 
 

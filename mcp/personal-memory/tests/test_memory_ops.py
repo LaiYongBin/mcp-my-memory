@@ -933,3 +933,19 @@ class CaptureCycleBatchEmbeddingTests(unittest.TestCase):
         self.assertIn("generate_embeddings_batch",
                       source,
                       "run_capture_cycle 应调用 generate_embeddings_batch 批量生成 embedding")
+
+
+class RecentMemoryCacheTTLTests(unittest.TestCase):
+    def test_recent_memory_ttl_is_at_least_300(self):
+        """_RECENT_MEMORY_TTL 应 >= 300 秒以减少长对话重查。"""
+        from service.analyzer import _RECENT_MEMORY_TTL
+        self.assertGreaterEqual(_RECENT_MEMORY_TTL, 300,
+                                "_RECENT_MEMORY_TTL 应至少 300 秒")
+
+    def test_upsert_memory_clears_recent_memory_cache(self):
+        """upsert_memory 写入后应清除 _recent_memory_cache，避免旧数据污染分析。"""
+        import inspect
+        from service import memory_ops
+        source = inspect.getsource(memory_ops.upsert_memory)
+        self.assertIn("_recent_memory_cache", source,
+                      "upsert_memory 应在写入后清除 _recent_memory_cache")

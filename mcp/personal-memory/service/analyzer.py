@@ -104,7 +104,7 @@ def analyzer_enabled() -> bool:
 
 # 进程级 TTL 缓存：key=(user_code, limit), value=(result, expire_ts)
 _recent_memory_cache: dict = {}
-_RECENT_MEMORY_TTL = 60  # 秒
+_RECENT_MEMORY_TTL = 300  # 秒：5 分钟 TTL，减少长对话重查
 
 
 def _recent_memory_context(user_code: str, limit: int = 12) -> List[Dict[str, Any]]:
