@@ -293,5 +293,38 @@ class TaxonomyNormalizeCacheTests(unittest.TestCase):
                         "lookup_domain_alias 应具有 lru_cache 的 cache_info 属性")
 
 
+class MarkMemoriesRecalledBatchTests(unittest.TestCase):
+    def test_lifecycle_state_updated_in_single_query(self):
+        """lifecycle_state 更新应合并为单次批量 SQL，而非逐条执行。"""
+        from service import memory_ops
+        from unittest.mock import patch, MagicMock, call
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor = MagicMock(return_value=mock_cur)
+        # 模拟返回 3 条记忆的 recall 更新结果
+        mock_cur.fetchall.return_value = [
+            {"id": 1, "confidence": 0.8, "is_explicit": False, "memory_type": "fact",
+             "status": "active", "valid_to": None, "conflict_with_id": None,
+             "updated_at": None, "recall_count": 5, "stability_score": 0.7},
+            {"id": 2, "confidence": 0.6, "is_explicit": False, "memory_type": "fact",
+             "status": "active", "valid_to": None, "conflict_with_id": None,
+             "updated_at": None, "recall_count": 2, "stability_score": 0.5},
+            {"id": 3, "confidence": 0.9, "is_explicit": True, "memory_type": "preference",
+             "status": "active", "valid_to": None, "conflict_with_id": None,
+             "updated_at": None, "recall_count": 10, "stability_score": 0.9},
+        ]
+        with patch("service.memory_ops.get_conn", return_value=mock_conn), \
+             patch("service.memory_ops._resolve_user", return_value="test"):
+            memory_ops.mark_memories_recalled([1, 2, 3], "test")
+        # 核心断言：execute 调用次数应为 2（recall_count 批量 + lifecycle_state 批量 CASE WHEN）
+        # 而非 4（1 + 3 次逐条）
+        self.assertEqual(mock_cur.execute.call_count, 2,
+                         f"应只执行 2 次 SQL（当前执行了 {mock_cur.execute.call_count} 次），lifecycle_state 应用 CASE WHEN 批量更新")
+
+
 if __name__ == "__main__":
     unittest.main()

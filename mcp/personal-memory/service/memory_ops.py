@@ -706,15 +706,20 @@ def mark_memories_recalled(memory_ids: List[int], user_code: Optional[str] = Non
             (resolved_user, unique_ids),
         )
         rows = [dict(row) for row in cur.fetchall()]
-        for row in rows:
-            lifecycle_state = derive_lifecycle_state(row)
+        # 批量 CASE WHEN 更新 lifecycle_state，避免 N 次逐条 UPDATE
+        if rows:
+            case_parts = " ".join(
+                f"WHEN id = {row['id']} THEN %s" for row in rows
+            )
+            state_values = [derive_lifecycle_state(row) for row in rows]
+            ids = [row["id"] for row in rows]
             cur.execute(
-                """
+                f"""
                 UPDATE memory_record
-                SET lifecycle_state = %s
-                WHERE id = %s
+                SET lifecycle_state = CASE {case_parts} END
+                WHERE id = ANY(%s)
                 """,
-                (lifecycle_state, row["id"]),
+                state_values + [ids],
             )
         conn.commit()
 
