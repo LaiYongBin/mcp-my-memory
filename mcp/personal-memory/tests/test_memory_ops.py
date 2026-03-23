@@ -326,5 +326,58 @@ class MarkMemoriesRecalledBatchTests(unittest.TestCase):
                          f"应只执行 2 次 SQL（当前执行了 {mock_cur.execute.call_count} 次），lifecycle_state 应用 CASE WHEN 批量更新")
 
 
+# 完整字段 dummy_row，与 RETURNING * 扩展后一致
+_DUMMY_MEMORY_ROW = {
+    "id": 42, "user_code": "test", "title": "test", "content": "test content",
+    "memory_type": "fact", "category": "context", "summary": None,
+    "tags": [], "source_type": "manual", "source_ref": None,
+    "confidence": 0.7, "importance": 5, "status": "active",
+    "is_explicit": False, "valid_from": None, "valid_to": None,
+    "subject_key": None, "related_subject_key": None, "attribute_key": None,
+    "value_text": None, "conflict_scope": None, "sensitivity_level": "normal",
+    "disclosure_policy": None, "lifecycle_state": "active", "stability_score": 0.5,
+    "conflict_with_id": None, "supersedes_id": None,
+    "created_at": None, "updated_at": None, "last_recalled_at": None,
+    "deleted_at": None, "recall_count": 0,
+}
+
+
+class UpsertMemoryReturningTests(unittest.TestCase):
+    def test_upsert_memory_does_not_call_get_memory_after_write(self):
+        """upsert_memory 写入后不应再调用 get_memory 做额外 SELECT。"""
+        from service import memory_ops
+        from unittest.mock import patch, MagicMock
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+        mock_cur.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor = MagicMock(return_value=mock_cur)
+        mock_cur.fetchone.return_value = _DUMMY_MEMORY_ROW
+        with patch("service.memory_ops.get_conn", return_value=mock_conn), \
+             patch("service.memory_ops._resolve_user", return_value="test"), \
+             patch("service.memory_ops.find_existing_memory", return_value=None), \
+             patch("service.memory_ops._normalize_memory_taxonomy", return_value={
+                 "memory_type": "fact", "source_type": "manual",
+                 "category": "context", "attribute_key": None,
+             }), \
+             patch("service.memory_ops.apply_memory_governance", side_effect=lambda x: {
+                 **x,
+                 "sensitivity_level": x.get("sensitivity_level", "normal"),
+                 "disclosure_policy": x.get("disclosure_policy", None),
+                 "lifecycle_state": x.get("lifecycle_state", "active"),
+                 "stability_score": x.get("stability_score", 0.5),
+             }), \
+             patch("service.memory_ops.get_memory") as mock_get_memory, \
+             patch("service.memory_ops.refresh_memory_embedding"), \
+             patch("service.memory_ops.sync_entity_graph_for_memory"):
+            memory_ops.upsert_memory({
+                "title": "test", "content": "test content",
+                "memory_type": "fact", "user_code": "test",
+            })
+            mock_get_memory.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

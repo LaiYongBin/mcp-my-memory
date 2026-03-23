@@ -645,7 +645,12 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
                     sentiment = %(sentiment)s,
                     updated_at = now()
                 WHERE id = %(id)s AND user_code = %(user_code)s AND deleted_at IS NULL
-                RETURNING id
+                RETURNING id, user_code, memory_type, category, title, content, summary, tags,
+                          source_type, source_ref, confidence, importance, status,
+                          is_explicit, supersedes_id, conflict_with_id,
+                          valid_from, valid_to, subject_key, related_subject_key, attribute_key, value_text,
+                          conflict_scope, sensitivity_level, disclosure_policy, lifecycle_state,
+                          stability_score, recall_count, last_recalled_at, created_at, updated_at, deleted_at
                 """,
                 values | {"id": payload["id"]},
             )
@@ -665,13 +670,18 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
                     %(subject_key)s, %(related_subject_key)s, %(attribute_key)s, %(value_text)s, %(conflict_scope)s,
                     %(sensitivity_level)s, %(disclosure_policy)s, %(lifecycle_state)s, %(stability_score)s, %(sentiment)s
                 )
-                RETURNING id
+                RETURNING id, user_code, memory_type, category, title, content, summary, tags,
+                          source_type, source_ref, confidence, importance, status,
+                          is_explicit, supersedes_id, conflict_with_id,
+                          valid_from, valid_to, subject_key, related_subject_key, attribute_key, value_text,
+                          conflict_scope, sensitivity_level, disclosure_policy, lifecycle_state,
+                          stability_score, recall_count, last_recalled_at, created_at, updated_at, deleted_at
                 """,
                 values,
             )
         row = cur.fetchone()
         conn.commit()
-    result = get_memory(int(row["id"]), resolved_user) or {}
+    result = apply_memory_governance(dict(row)) if row else {}
     try:
         embedding_source = (result.get("summary") or result.get("content") or result.get("title") or "").strip()
         if embedding_source:
