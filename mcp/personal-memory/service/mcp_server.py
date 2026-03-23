@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import logging
 import os
 import time as _time_module
@@ -663,31 +664,27 @@ def _build_recall_result(
     query_text = _compose_recall_query(
         user_message=user_message, draft_response=draft_response, topic_hint=topic_hint
     )
-    memories = search_memories(
-        query=query_text,
-        user_code=user_code,
-        include_archived=False,
-        limit=memory_limit,
-    )
-    contexts = search_context_snapshots(
-        query=query_text,
-        user_code=user_code,
-        snapshot_level=None,
-        session_key=None,
-        limit=context_limit,
-    )
-    try:
-        recent_contexts = search_recent_context_summaries(
-            user_code=user_code,
-            session_key=None,
-            query="",
-            snapshot_levels=[SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC],
-            recent_hours=recent_context_hours,
-            limit=recent_context_limit,
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        f_memories = executor.submit(
+            search_memories,
+            query=query_text, user_code=user_code, include_archived=False, limit=memory_limit,
         )
-    except Exception as e:
-        logging.getLogger(__name__).warning("recent_contexts fetch failed: %s", e)
-        recent_contexts = []
+        f_contexts = executor.submit(
+            search_context_snapshots,
+            query=query_text, user_code=user_code, snapshot_level=None, session_key=None, limit=context_limit,
+        )
+        f_recent = executor.submit(
+            search_recent_context_summaries,
+            user_code=user_code, session_key=None, query="", snapshot_levels=[SNAPSHOT_SEGMENT, SNAPSHOT_TOPIC],
+            recent_hours=recent_context_hours, limit=recent_context_limit,
+        )
+        memories = f_memories.result()
+        contexts = f_contexts.result()
+        try:
+            recent_contexts = f_recent.result()
+        except Exception as e:
+            logging.getLogger(__name__).warning("recent_contexts fetch failed: %s", e)
+            recent_contexts = []
     memory_groups = _bucket_recall_memories(memories, query_text)
     visible_memories = memory_groups["direct"] + memory_groups["contextual"]
     related_entities = summarize_entities_from_memories(

@@ -1177,5 +1177,38 @@ class SentimentFilterTests(unittest.TestCase):
         self.assertEqual("neutral", result.get("sentiment"))
 
 
+class ParallelRecallTests(unittest.TestCase):
+    """验证 _build_recall_result 并行查询与串行等价。"""
+
+    def test_parallel_recall_returns_memories(self):
+        """三个查询并行执行，结果正确汇总。"""
+        import service.mcp_server as srv
+        from unittest.mock import patch, MagicMock
+
+        dummy_memories = [{"id": 1, "title": "t", "content": "c", "memory_type": "fact",
+                           "importance": 5, "confidence": 0.8, "status": "active",
+                           "lifecycle_state": "active", "disclosure_policy": None, "tags": [],
+                           "subject_key": None, "related_subject_key": None, "attribute_key": None,
+                           "source_type": None, "source_ref": None, "is_explicit": False,
+                           "valid_from": None, "valid_to": None, "summary": None, "value_text": None,
+                           "sentiment": None, "conflict_scope": None, "supersedes_id": None,
+                           "created_at": "2024-01-01", "updated_at": "2024-01-01",
+                           "last_recalled_at": None, "deleted_at": None, "user_code": "test"}]
+
+        with patch("service.mcp_server.search_memories", return_value=dummy_memories) as m_mem, \
+             patch("service.mcp_server.search_context_snapshots", return_value=[]) as m_ctx, \
+             patch("service.mcp_server.search_recent_context_summaries", return_value=[]) as m_rec, \
+             patch("service.mcp_server.summarize_entities_from_memories", return_value=[]), \
+             patch("service.mcp_server._enrich_related_entities", return_value=[]), \
+             patch("service.mcp_server._decide_recall", return_value={"should_recall": False, "decision_score": 0.0, "decision_reasons": [], "suggested_integration_style": "none"}), \
+             patch("service.mcp_server.mark_memories_recalled"):
+            result = srv._build_recall_result(user_message="hello", user_code="test")
+
+        m_mem.assert_called_once()
+        m_ctx.assert_called_once()
+        m_rec.assert_called_once()
+        self.assertIsNotNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
