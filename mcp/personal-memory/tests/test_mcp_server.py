@@ -281,7 +281,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        rebuild_entity_graph_mock.assert_called_once_with(user_code="LYB")
+        rebuild_entity_graph_mock.assert_called_once_with(user_code="LYB", force=False)
         self.assertEqual(2, structured["count"])
         self.assertEqual("user", structured["items"][0]["subject_key"])
 

@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import re
+import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from psycopg.types.json import Json
 
 from service.db import get_conn, get_settings
 from service.entity_memory import summarize_entities_from_memories
+
+# Task 7: 进程级增量同步水位线 {user_code -> unix_timestamp}
+_last_graph_sync: Dict[str, float] = {}
 
 
 def _resolve_user(user_code: Optional[str]) -> str:
@@ -334,11 +339,18 @@ def sync_entity_graph_for_memory(memory: Dict[str, Any]) -> None:
     )
 
 
-def rebuild_entity_graph(*, user_code: Optional[str] = None) -> Dict[str, Any]:
+def rebuild_entity_graph(*, user_code: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
     resolved_user = _resolve_user(user_code)
+    last_sync = _last_graph_sync.get(resolved_user or "")
+    since: Optional[datetime] = (
+        None if force or not last_sync
+        else datetime.fromtimestamp(last_sync, tz=timezone.utc)
+    )
     with get_conn() as conn, conn.cursor() as cur:
+        since_filter = " AND updated_at >= %s" if since else ""
+        since_params = [since] if since else []
         cur.execute(
-            """
+            f"""
             SELECT DISTINCT subject_key
             FROM memory_record
             WHERE user_code = %s
@@ -346,6 +358,7 @@ def rebuild_entity_graph(*, user_code: Optional[str] = None) -> Dict[str, Any]:
               AND status = 'active'
               AND subject_key IS NOT NULL
               AND subject_key <> ''
+              {since_filter}
             UNION
             SELECT DISTINCT related_subject_key AS subject_key
             FROM memory_record
@@ -354,9 +367,10 @@ def rebuild_entity_graph(*, user_code: Optional[str] = None) -> Dict[str, Any]:
               AND status = 'active'
               AND related_subject_key IS NOT NULL
               AND related_subject_key <> ''
+              {since_filter}
             ORDER BY subject_key ASC
             """,
-            (resolved_user, resolved_user),
+            (resolved_user, *since_params, resolved_user, *since_params),
         )
         subject_keys = [str(row["subject_key"]) for row in cur.fetchall()]
     with get_conn() as conn, conn.cursor() as cur:
@@ -393,6 +407,7 @@ def rebuild_entity_graph(*, user_code: Optional[str] = None) -> Dict[str, Any]:
             (resolved_user,),
         )
         edge_count = int(cur.fetchone()["count"])
+    _last_graph_sync[resolved_user or ""] = time.time()
     return {
         "profile_count": profile_count,
         "edge_count": edge_count,

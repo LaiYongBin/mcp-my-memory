@@ -1107,8 +1107,11 @@ def create_server(
         return ItemListResult(items=items, count=len(items))
 
     @server.tool(name="maintain_entity_graph", structured_output=True)
-    def maintain_entity_graph_tool(user_code: Optional[str] = None) -> ItemListResult:
-        result = rebuild_entity_graph(user_code=user_code)
+    def maintain_entity_graph_tool(
+        user_code: Optional[str] = None,
+        force: bool = False,
+    ) -> ItemListResult:
+        result = rebuild_entity_graph(user_code=user_code, force=force)
         subject_keys = [{"subject_key": value} for value in list(result.get("subject_keys") or [])]
         return ItemListResult(items=subject_keys, count=int(result.get("profile_count") or 0))
 
