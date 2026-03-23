@@ -593,7 +593,7 @@ def find_two_hop_connections(
             FROM entity_edge
             WHERE source_subject_key = ANY(%s)
               AND target_subject_key != ALL(%s)
-              AND (%s IS NULL OR user_code = %s)
+              AND (%s::text IS NULL OR user_code = %s)
             """,
             (source_subject_keys, exclude, user_code, user_code),
         )
