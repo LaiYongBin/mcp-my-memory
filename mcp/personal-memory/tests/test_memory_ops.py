@@ -100,5 +100,39 @@ class StaleMemoryChallengeTests(unittest.TestCase):
         self.assertIn("某个记忆", q)
 
 
+class MemoryTimelineTests(unittest.TestCase):
+    def test_get_memory_timeline_exists(self) -> None:
+        from service.memory_ops import get_memory_timeline
+        self.assertTrue(callable(get_memory_timeline))
+
+    def test_circular_reference_protection(self) -> None:
+        """循环引用时不应无限循环。"""
+        from unittest.mock import patch, MagicMock
+        from service.memory_ops import get_memory_timeline
+
+        mem1 = {"id": 1, "user_code": "LYB", "supersedes_id": 2, "updated_at": "2026-01-02", "title": "v2"}
+        mem2 = {"id": 2, "user_code": "LYB", "supersedes_id": 1, "updated_at": "2026-01-01", "title": "v1"}
+
+        def fake_get_memory(mid, uc):
+            return {1: mem1, 2: mem2}.get(mid)
+
+        with patch("service.memory_ops.get_memory", side_effect=fake_get_memory), \
+             patch("service.memory_ops._fetch_where_supersedes_id", return_value=None), \
+             patch("service.memory_ops.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchone.return_value = mem1
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            result = get_memory_timeline(user_code="LYB", memory_id=1, limit=10)
+            self.assertIsInstance(result, list)
+
+    def test_empty_for_nonexistent_memory(self) -> None:
+        from unittest.mock import patch
+        from service.memory_ops import get_memory_timeline
+
+        with patch("service.memory_ops.get_memory", return_value=None):
+            result = get_memory_timeline(user_code="LYB", memory_id=999, limit=10)
+            self.assertEqual([], result)
+
+
 if __name__ == "__main__":
     unittest.main()

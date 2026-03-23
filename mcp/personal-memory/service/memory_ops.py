@@ -1102,6 +1102,112 @@ def _suggested_challenge_question(memory: Dict[str, Any]) -> str:
     return f"关于\"{title}\"，现在情况还一样吗？"
 
 
+def _fetch_by_id(user_code: str, memory_id: int) -> Optional[Dict[str, Any]]:
+    """按 ID 获取单条记忆（含用户隔离）。"""
+    return get_memory(memory_id, user_code)
+
+
+def _fetch_where_supersedes_id(user_code: str, memory_id: int) -> Optional[Dict[str, Any]]:
+    """查找取代了指定记忆的记录（若有多条，取最新的一条）。"""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, user_code, memory_type, title, content, subject_key, attribute_key,
+                   value_text, conflict_scope, confidence, status, supersedes_id,
+                   conflict_with_id, updated_at, created_at
+            FROM memory_record
+            WHERE supersedes_id = %s AND user_code = %s
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (memory_id, user_code),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_memory_timeline(
+    *,
+    user_code: Optional[str] = None,
+    memory_id: Optional[int] = None,
+    subject_key: Optional[str] = None,
+    attribute_key: Optional[str] = None,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    resolved_user = _resolve_user(user_code)
+    visited_ids: set = set()
+    result = []
+
+    # 1. 确定起点
+    if memory_id:
+        start = get_memory(memory_id, resolved_user)
+    elif subject_key and attribute_key:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id FROM memory_record
+                WHERE user_code = %s AND subject_key = %s AND attribute_key = %s
+                  AND deleted_at IS NULL
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (resolved_user, subject_key, attribute_key),
+            )
+            row = cur.fetchone()
+        start = get_memory(int(row["id"]), resolved_user) if row else None
+    else:
+        return []
+
+    if not start:
+        return []
+
+    # 提前将 start["id"] 加入 visited_ids，防止向新遍历时循环回 start
+    visited_ids.add(start["id"])
+
+    # 2. 向新：反向查找谁 supersedes 了 start
+    current = start
+    newer_chain = []
+    while True:
+        newer = _fetch_where_supersedes_id(resolved_user, current["id"])
+        if not newer or newer["id"] in visited_ids:
+            break
+        visited_ids.add(newer["id"])
+        newer_chain.append(newer)
+        current = newer
+
+    # newer_chain 最后一条是最新版
+    for row in newer_chain:
+        is_latest = (row is newer_chain[-1])
+        result.append({
+            **row,
+            "timeline_position": "current" if is_latest else "superseded",
+            "changed_at": row["updated_at"],
+        })
+
+    # 3. 起点本身
+    start_position = "superseded" if newer_chain else "current"
+    result.append({**start, "timeline_position": start_position, "changed_at": start["updated_at"]})
+
+    # 4. 向旧：沿 supersedes_id 链追溯
+    row = start
+    while row.get("supersedes_id") and len(result) < limit:
+        if row["supersedes_id"] in visited_ids:
+            break
+        older = _fetch_by_id(resolved_user, int(row["supersedes_id"]))
+        if not older:
+            break
+        visited_ids.add(older["id"])
+        result.append({**older, "timeline_position": "superseded", "changed_at": older["updated_at"]})
+        row = older
+
+    # 5. 冲突链（仅追加 start 的直接冲突）
+    if start.get("conflict_with_id") and start["conflict_with_id"] not in visited_ids:
+        conflict = _fetch_by_id(resolved_user, int(start["conflict_with_id"]))
+        if conflict and len(result) < limit:
+            result.append({**conflict, "timeline_position": "conflicted", "changed_at": conflict["updated_at"]})
+
+    return result[:limit]
+
+
 def get_stale_for_challenge(
     *,
     user_code: Optional[str] = None,

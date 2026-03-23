@@ -41,6 +41,7 @@ from service.entity_memory import summarize_entities_from_memories
 from service.memory_ops import (
     archive_memory,
     delete_memory as delete_memory_row,
+    get_memory_timeline,
     get_stale_for_challenge,
     maintain_memory_store,
     mark_memories_recalled,
@@ -1243,6 +1244,23 @@ def create_server(
             limit=limit,
             min_days_since_recall=min_days_since_recall,
             memory_types=memory_types,
+        )
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool("get_memory_timeline")
+    async def get_memory_timeline_tool(
+        user_code: Optional[str] = None,
+        memory_id: Optional[int] = None,
+        subject_key: Optional[str] = None,
+        attribute_key: Optional[str] = None,
+        limit: int = 20,
+    ) -> ItemListResult:
+        items = get_memory_timeline(
+            user_code=user_code,
+            memory_id=memory_id,
+            subject_key=subject_key,
+            attribute_key=attribute_key,
+            limit=limit,
         )
         return ItemListResult(items=items, count=len(items))
 
