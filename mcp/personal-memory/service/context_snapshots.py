@@ -14,6 +14,7 @@ from service.analyzer import _extract_json, analyzer_config, analyzer_enabled, a
 from service.capture_cycle import _resolve_user, record_conversation_event, resolve_analysis_memory
 from service.constants import (
     ACTION_LONG_TERM,
+    CONTEXT_EVENTS_LIMIT,
     EVENT_SESSION_SYNC,
     MAX_GLOBAL_TOPIC_CHARS,
     ROLE_ASSISTANT,
@@ -463,7 +464,7 @@ def sync_session_context(
             if event:
                 events.append(event)
     else:
-        events = list_session_events(user_code=resolved_user, session_key=session_key)
+        events = list_session_events(user_code=resolved_user, session_key=session_key, limit=CONTEXT_EVENTS_LIMIT)
 
     transcript = [{"role": row["role"], "content": row["content"]} for row in events]
     segment = summarize_segment(transcript, topic_hint)

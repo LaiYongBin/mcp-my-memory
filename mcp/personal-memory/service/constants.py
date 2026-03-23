@@ -136,3 +136,6 @@ RECALL_SCORE_WEIGHTS = {
 # C3: global topic anti-inflation
 MAX_GLOBAL_TOPIC_CHARS = int(os.getenv("LYB_SKILL_MEMORY_MAX_GLOBAL_TOPIC_CHARS", "2000"))
 _COMPRESSION_PREFIX = "[早期内容已压缩]\n"
+
+# 同步会话上下文时，每次加载的最大对话事件条数
+CONTEXT_EVENTS_LIMIT: int = int(os.environ.get("LYB_SKILL_MEMORY_CONTEXT_EVENTS_LIMIT", "100"))

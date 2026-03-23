@@ -898,3 +898,15 @@ class ContextSearchOffsetTests(unittest.TestCase):
         sig = inspect.signature(search_recent_context_summaries)
         self.assertEqual(0, sig.parameters["offset"].default,
                          "search_recent_context_summaries offset 默认值应为 0")
+
+
+class SessionEventsLimitTests(unittest.TestCase):
+    def test_context_events_limit_exists(self):
+        from service.constants import CONTEXT_EVENTS_LIMIT
+        self.assertIsInstance(CONTEXT_EVENTS_LIMIT, int,
+                              "CONTEXT_EVENTS_LIMIT 应为 int 类型")
+
+    def test_context_events_limit_positive(self):
+        from service.constants import CONTEXT_EVENTS_LIMIT
+        self.assertGreater(CONTEXT_EVENTS_LIMIT, 0,
+                           "CONTEXT_EVENTS_LIMIT 应大于 0")
