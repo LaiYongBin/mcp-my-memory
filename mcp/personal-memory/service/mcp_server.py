@@ -41,6 +41,8 @@ from service.entity_graph import (
     search_entities,
     search_entity_relationships,
     update_entity_profile,
+    delete_entity_profile,
+    delete_entity_edge,
 )
 from service.entity_memory import summarize_entities_from_memories
 from service.memory_ops import (
@@ -1150,6 +1152,31 @@ def create_server(
         if not result:
             raise ValueError(f"entity_profile for '{subject_key}' not found or no fields to update")
         return result
+
+    @server.tool(name="delete_entity_profile", structured_output=True)
+    def delete_entity_profile_tool(
+        subject_key: str,
+        user_code: Optional[str] = None,
+        cascade_edges: bool = True,
+    ) -> Dict[str, Any]:
+        deleted = delete_entity_profile(
+            subject_key=subject_key,
+            user_code=user_code,
+            cascade_edges=cascade_edges,
+        )
+        if not deleted:
+            raise ValueError(f"entity_profile for '{subject_key}' not found")
+        return {"subject_key": subject_key, "deleted": True, "cascade_edges": cascade_edges}
+
+    @server.tool(name="delete_entity_edge", structured_output=True)
+    def delete_entity_edge_tool(
+        edge_id: int,
+        user_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        deleted = delete_entity_edge(edge_id=edge_id, user_code=user_code)
+        if not deleted:
+            raise ValueError(f"entity_edge {edge_id} not found")
+        return {"edge_id": edge_id, "deleted": True}
 
     @server.tool(name="search_context", structured_output=True)
     def search_context_tool(

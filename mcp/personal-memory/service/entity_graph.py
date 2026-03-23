@@ -450,6 +450,58 @@ def update_entity_profile(
     return dict(row) if row else None
 
 
+def delete_entity_profile(
+    *,
+    subject_key: str,
+    user_code: Optional[str] = None,
+    cascade_edges: bool = True,
+) -> bool:
+    """删除实体档案，可选级联删除相关 entity_edge。返回是否找到并删除。"""
+    resolved_user = _resolve_user(user_code)
+    with get_conn() as conn, conn.cursor() as cur:
+        if cascade_edges:
+            cur.execute(
+                """
+                DELETE FROM entity_edge
+                WHERE user_code = %s
+                  AND (source_subject_key = %s OR target_subject_key = %s)
+                """,
+                (resolved_user, subject_key, subject_key),
+            )
+        cur.execute(
+            """
+            DELETE FROM entity_profile
+            WHERE user_code = %s AND subject_key = %s
+            RETURNING subject_key
+            """,
+            (resolved_user, subject_key),
+        )
+        row = cur.fetchone()
+        conn.commit()
+    return row is not None
+
+
+def delete_entity_edge(
+    *,
+    edge_id: int,
+    user_code: Optional[str] = None,
+) -> bool:
+    """按 ID 删除单条 entity_edge。返回是否找到并删除。"""
+    resolved_user = _resolve_user(user_code)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM entity_edge
+            WHERE id = %s AND user_code = %s
+            RETURNING id
+            """,
+            (edge_id, resolved_user),
+        )
+        row = cur.fetchone()
+        conn.commit()
+    return row is not None
+
+
 def search_entities(
     *,
     query: str = "",
