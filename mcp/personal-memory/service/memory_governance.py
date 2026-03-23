@@ -98,12 +98,27 @@ def derive_stability_score(item: Dict[str, Any]) -> float:
     recall_bonus = min(int(item.get("recall_count") or 0), 3) * 0.12
     age_penalty = 0.0
     updated_at = _as_datetime(item.get("updated_at"))
+    attribute_key = str(item.get("attribute_key") or "").lower()
+    # 时效性强的属性使用更激进的衰减曲线
+    TIME_SENSITIVE_ATTRS = ("current_goal", "current_project", "current_focus",
+                            "current_status", "short_term")
+    is_time_sensitive = any(attr in attribute_key for attr in TIME_SENSITIVE_ATTRS)
     if updated_at:
         age_days = max(0.0, (datetime.now(timezone.utc) - updated_at).days)
-        if age_days >= 120:
-            age_penalty = 0.18
-        elif age_days >= 45:
-            age_penalty = 0.08
+        if is_time_sensitive:
+            if age_days >= 60:
+                age_penalty = 0.40
+            elif age_days >= 30:
+                age_penalty = 0.25
+            elif age_days >= 14:
+                age_penalty = 0.12
+        else:
+            if age_days >= 120:
+                age_penalty = 0.30
+            elif age_days >= 60:
+                age_penalty = 0.18
+            elif age_days >= 45:
+                age_penalty = 0.10
     return round(max(0.0, min(1.0, confidence + explicit_bonus + recall_bonus - age_penalty)), 4)
 
 
@@ -141,6 +156,14 @@ def derive_lifecycle_state(item: Dict[str, Any]) -> str:
 
 def apply_memory_governance(item: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(item)
+    # B2: 降低被替代或冲突记忆的置信度
+    raw_confidence = float(payload.get("confidence") or 0.0)
+    if payload.get("supersedes_id"):
+        # 旧版本记忆（已被新版本取代）
+        payload["confidence"] = min(raw_confidence, 0.35)
+    elif payload.get("conflict_with_id"):
+        # 存在冲突的记忆，置信度折半���较低值
+        payload["confidence"] = min(raw_confidence, max(raw_confidence * 0.5, 0.35))
     payload["stability_score"] = float(payload.get("stability_score") or derive_stability_score(payload))
     payload["lifecycle_state"] = str(payload.get("lifecycle_state") or derive_lifecycle_state(payload))
     governance = derive_memory_governance(payload)

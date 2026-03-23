@@ -750,3 +750,88 @@ class AccumulateEvidenceBatchTests(unittest.TestCase):
         from service.evidence import accumulate_evidence_batch
         result = accumulate_evidence_batch(user_code="test", items=[])
         self.assertEqual([], result)
+
+
+class StabilityScoreDecayTests(unittest.TestCase):
+    def _make_item(self, attribute_key: str, age_days: int, confidence: float = 0.8) -> dict:
+        from datetime import datetime, timezone, timedelta
+        return {
+            "confidence": confidence,
+            "is_explicit": False,
+            "recall_count": 0,
+            "attribute_key": attribute_key,
+            "updated_at": (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat(),
+        }
+
+    def test_current_goal_decays_faster_at_30_days(self):
+        """current_goal 属性 30 天后稳定性应明显低于通用属性。"""
+        from service.memory_governance import derive_stability_score
+        generic_30 = derive_stability_score(self._make_item("drink", 30))
+        goal_30 = derive_stability_score(self._make_item("current_goal", 30))
+        self.assertLess(goal_30, generic_30, "current_goal 30天应比通用属性衰减更多")
+
+    def test_current_goal_at_60_days_is_below_threshold(self):
+        """current_goal 60 天后稳定性应低于 0.5（视为过时）。"""
+        from service.memory_governance import derive_stability_score
+        score = derive_stability_score(self._make_item("current_goal", 60, confidence=0.75))
+        self.assertLess(score, 0.5)
+
+    def test_generic_120_days_has_stronger_penalty(self):
+        """通用属性 120 天 age_penalty 应从 0.18 增大到至少 0.30。"""
+        from service.memory_governance import derive_stability_score
+        from datetime import datetime, timezone, timedelta
+        item_0 = {"confidence": 0.7, "is_explicit": False, "recall_count": 0, "attribute_key": "drink"}
+        item_120 = {
+            "confidence": 0.7, "is_explicit": False, "recall_count": 0,
+            "attribute_key": "drink",
+            "updated_at": (datetime.now(timezone.utc) - timedelta(days=120)).isoformat(),
+        }
+        score_0 = derive_stability_score(item_0)
+        score_120 = derive_stability_score(item_120)
+        self.assertLess(score_120, score_0 - 0.25,
+                        "120天通用属性 age_penalty 应至少 0.30")
+
+
+class SupersededMemoryConfidenceTests(unittest.TestCase):
+    def test_superseded_memory_has_lower_confidence(self):
+        """supersedes_id 不为空的记忆（旧版本）应自动降低 confidence。"""
+        from service.memory_governance import apply_memory_governance
+        item = {
+            "confidence": 0.9,
+            "is_explicit": True,
+            "recall_count": 0,
+            "supersedes_id": 42,
+            "conflict_with_id": None,
+            "status": "active",
+        }
+        governed = apply_memory_governance(item)
+        self.assertLessEqual(governed["confidence"], 0.35,
+                             "被替代的记忆 confidence 应降至 <= 0.35")
+
+    def test_conflicted_memory_has_lower_confidence(self):
+        """conflict_with_id 不为空的记忆应自动降低 confidence。"""
+        from service.memory_governance import apply_memory_governance
+        item = {
+            "confidence": 0.85,
+            "is_explicit": False,
+            "recall_count": 0,
+            "supersedes_id": None,
+            "conflict_with_id": 7,
+            "status": "active",
+        }
+        governed = apply_memory_governance(item)
+        self.assertLessEqual(governed["confidence"], 0.45)
+
+    def test_normal_memory_keeps_confidence(self):
+        """无冲突、未被替代的记忆 confidence 不应被降低。"""
+        from service.memory_governance import apply_memory_governance
+        item = {
+            "confidence": 0.85,
+            "is_explicit": True,
+            "recall_count": 3,
+            "supersedes_id": None,
+            "conflict_with_id": None,
+            "status": "active",
+        }
+        governed = apply_memory_governance(item)
+        self.assertGreaterEqual(governed["confidence"], 0.80)
