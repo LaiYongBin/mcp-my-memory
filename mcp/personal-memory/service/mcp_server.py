@@ -48,6 +48,7 @@ from service.entity_graph import (
     delete_entity_edge,
 )
 from service.entity_memory import summarize_entities_from_memories
+from service.evidence import list_evidence
 from service.memory_ops import (
     approve_review_candidate,
     archive_memory,
@@ -1414,6 +1415,24 @@ def create_server(
             memory_types=memory_types,
         )
         return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="list_evidence", structured_output=True)
+    def list_evidence_tool(
+        user_code: Optional[str] = None,
+        conflict_scope: Optional[str] = None,
+        limit: int = 20,
+    ) -> ItemListResult:
+        """列出积累中的证据信号（memory_signal 表）。"""
+        items = list_evidence(user_code=user_code, conflict_scope=conflict_scope, limit=limit)
+        return ItemListResult(items=items, count=len(items))
+
+    @server.tool(name="fetch_source_turns", structured_output=True)
+    def fetch_source_turns_tool(
+        source_refs: List[str],
+    ) -> Dict[str, Any]:
+        """查询记忆来源对话轮次。source_refs 格式为 ['session_key:turn_id', ...]。"""
+        result = fetch_source_turns(source_refs)
+        return {"items": list(result.values()), "count": len(result), "ref_map": result}
 
     @server.tool(name="get_memory_timeline", structured_output=True)
     async def get_memory_timeline_tool(

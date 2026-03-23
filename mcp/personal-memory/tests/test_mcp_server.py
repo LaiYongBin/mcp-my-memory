@@ -38,6 +38,8 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
                 "orchestrate_turn_memory",
                 "merge_duplicate_memories",
                 "get_stale_memories_for_challenge",
+                "list_evidence",
+                "fetch_source_turns",
                 "get_memory_timeline",
                 "export_memories",
                 "generate_memory_report",
