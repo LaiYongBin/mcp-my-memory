@@ -1139,7 +1139,6 @@ def create_server(
         subject_key: str,
         user_code: Optional[str] = None,
         display_name: Optional[str] = None,
-        summary: Optional[str] = None,
         relation_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         result = update_entity_profile(

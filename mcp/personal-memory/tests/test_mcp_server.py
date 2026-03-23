@@ -1263,5 +1263,18 @@ class EmbeddingSSLCacheTests(unittest.TestCase):
         self.assertEqual(call_count, 1, "SSL context 应只创建一次")
 
 
+class UpdateEntityProfileToolTests(unittest.TestCase):
+    def test_update_entity_profile_tool_has_no_summary_param(self):
+        """update_entity_profile_tool 不应有 summary 参数（entity_profile 表无此列）。"""
+        from service.mcp_server import create_server
+        server = create_server()
+        tools = {t.name: t for t in server._tool_manager.list_tools()}
+        tool = tools.get("update_entity_profile")
+        self.assertIsNotNone(tool, "update_entity_profile 工具应存在")
+        params = set(tool.parameters.get("properties", {}).keys())
+        self.assertNotIn("summary", params,
+                         "update_entity_profile_tool 不应有 summary 参数")
+
+
 if __name__ == "__main__":
     unittest.main()
