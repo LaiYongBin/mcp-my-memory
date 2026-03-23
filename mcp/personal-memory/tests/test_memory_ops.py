@@ -978,3 +978,18 @@ class AnalyzeTurnTopicHintTests(unittest.TestCase):
         source = inspect.getsource(capture_cycle.run_capture_cycle)
         self.assertIn("topic_hint=topic_hint", source,
                       "run_capture_cycle 调用 analyze_turn 时应透传 topic_hint")
+
+
+class EvidencePromotedStatusTests(unittest.TestCase):
+    def test_mark_evidence_promoted_sets_status_promoted(self):
+        """mark_evidence_promoted 应将 status 更新为 'promoted'。"""
+        import inspect
+        from service.evidence import mark_evidence_promoted
+        source = inspect.getsource(mark_evidence_promoted)
+        self.assertIn("promoted", source,
+                      "mark_evidence_promoted 应将 status 改为 'promoted'")
+        # 确认 SQL 更新了 status 字段
+        self.assertIn("status", source)
+        # 确认 SET 子句包含 status = 'promoted'
+        self.assertIn("status = 'promoted'", source,
+                      "mark_evidence_promoted 的 UPDATE SQL 应包含 status = 'promoted'")

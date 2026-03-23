@@ -255,7 +255,9 @@ def mark_evidence_promoted(evidence_id: int, memory_id: int) -> Optional[Dict[st
         cur.execute(
             """
             UPDATE memory_signal
-            SET promoted_memory_id = %s, updated_at = now()
+            SET promoted_memory_id = %s,
+                status = 'promoted',
+                updated_at = now()
             WHERE id = %s
             RETURNING id, user_code, category, subject_key, attribute_key, value_text, latest_claim,
                       conflict_scope, evidence_type, time_scope, support_score, occurrence_count,
