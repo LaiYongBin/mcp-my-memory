@@ -663,39 +663,3 @@ def _pair_turns(turns: List[Dict]) -> Tuple[List[Tuple[Dict, Dict]], List[Dict]]
 
     # 末尾孤立 assistant 忽略
     return pairs, failed
-
-
-def batch_ingest_turns(
-    *,
-    turns: List[Dict],
-    session_key: str,
-    user_code: Optional[str] = None,
-    topic_hint: Optional[str] = None,
-    analyze: bool = True,
-    rate_limit_ms: int = 500,
-) -> Dict[str, Any]:
-    """批量将历史对话 turns 导入记忆系统。"""
-    resolved_user = _resolve_user(user_code)
-    pairs, failed = _pair_turns(turns)
-
-    ingested_turns = 0
-    created_memories = 0
-
-    for user_turn, assistant_turn in pairs:
-        result = run_capture_cycle(
-            user_text=str(user_turn.get("content") or ""),
-            assistant_text=str(assistant_turn.get("content") or ""),
-            user_code=resolved_user,
-            session_key=session_key,
-            consolidate=False,
-        )
-        ingested_turns += 1
-        created_memories += int(result.get("persisted_count") or 0)
-        if rate_limit_ms > 0:
-            time.sleep(rate_limit_ms / 1000.0)
-
-    return {
-        "ingested_turns": ingested_turns,
-        "created_memories": created_memories,
-        "failed_turns": failed,
-    }
