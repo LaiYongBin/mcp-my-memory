@@ -1332,3 +1332,82 @@ def export_memory_records(
         "export_count": len(records),
         "sensitivity_levels_included": levels,
     }
+
+
+def generate_memory_report(
+    *,
+    user_code: Optional[str] = None,
+    period_days: int = 30,
+) -> Dict[str, Any]:
+    resolved_user = _resolve_user(user_code)
+    with get_conn() as conn, conn.cursor() as cur:
+        # 新建数（按 category）
+        cur.execute(
+            """
+            SELECT COALESCE(category, 'uncategorized') AS category, count(*) AS cnt
+            FROM memory_record
+            WHERE user_code = %s
+              AND created_at >= now() - (%s || ' days')::interval
+              AND deleted_at IS NULL
+            GROUP BY category
+            """,
+            (resolved_user, str(period_days)),
+        )
+        new_by_category = {row["category"]: int(row["cnt"]) for row in cur.fetchall()}
+
+        # 更新数
+        cur.execute(
+            """
+            SELECT count(*) AS cnt FROM memory_record
+            WHERE user_code = %s
+              AND updated_at >= now() - (%s || ' days')::interval
+              AND created_at < now() - (%s || ' days')::interval
+              AND deleted_at IS NULL
+            """,
+            (resolved_user, str(period_days), str(period_days)),
+        )
+        updated_count = int((cur.fetchone() or {}).get("cnt") or 0)
+
+        # 冷/旧记忆数
+        cur.execute(
+            """
+            SELECT count(*) AS cnt FROM memory_record
+            WHERE user_code = %s
+              AND lifecycle_state IN ('cold', 'stale')
+              AND deleted_at IS NULL
+            """,
+            (resolved_user,),
+        )
+        stale_count = int((cur.fetchone() or {}).get("cnt") or 0)
+
+        # 显式记忆数
+        cur.execute(
+            """
+            SELECT count(*) AS cnt FROM memory_record
+            WHERE user_code = %s AND is_explicit = true AND deleted_at IS NULL
+            """,
+            (resolved_user,),
+        )
+        explicit_count = int((cur.fetchone() or {}).get("cnt") or 0)
+
+        # Top 5 recall_count
+        cur.execute(
+            """
+            SELECT id, title, recall_count
+            FROM memory_record
+            WHERE user_code = %s AND deleted_at IS NULL
+            ORDER BY recall_count DESC NULLS LAST
+            LIMIT 5
+            """,
+            (resolved_user,),
+        )
+        top_recalled = [dict(row) for row in cur.fetchall()]
+
+    return {
+        "period_days": period_days,
+        "new_memories_by_category": new_by_category,
+        "updated_count": updated_count,
+        "stale_count": stale_count,
+        "explicit_count": explicit_count,
+        "top_recalled": top_recalled,
+    }

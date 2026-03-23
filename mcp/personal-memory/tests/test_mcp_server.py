@@ -40,6 +40,7 @@ class MCPPersonalMemoryServerTests(unittest.IsolatedAsyncioTestCase):
                 "get_stale_memories_for_challenge",
                 "get_memory_timeline",
                 "export_memories",
+                "generate_memory_report",
             },
             names,
         )

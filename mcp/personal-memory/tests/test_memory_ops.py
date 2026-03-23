@@ -198,5 +198,33 @@ class ExportMemoriesTests(unittest.TestCase):
             self.assertEqual(1, len(result["records"]))
 
 
+class MemoryReportTests(unittest.TestCase):
+    def test_memory_report_schema_exists(self) -> None:
+        from service.schemas import MemoryReport
+        report = MemoryReport(
+            period_days=30,
+            new_memories_by_category={},
+            updated_count=0,
+            stale_count=0,
+            explicit_count=0,
+            top_recalled=[],
+        )
+        self.assertEqual(30, report.period_days)
+
+    def test_generate_report_returns_zeros_for_empty(self) -> None:
+        from unittest.mock import patch, MagicMock
+        from service.memory_ops import generate_memory_report
+
+        with patch("service.memory_ops.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_cursor.fetchone.return_value = {"count": 0}
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            result = generate_memory_report(user_code="LYB", period_days=30)
+            self.assertEqual(30, result["period_days"])
+            self.assertIn("new_memories_by_category", result)
+            self.assertIn("stale_count", result)
+
+
 if __name__ == "__main__":
     unittest.main()

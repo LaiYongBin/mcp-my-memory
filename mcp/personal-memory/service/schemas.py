@@ -324,3 +324,12 @@ class ExportResult(MCPResultBase):
     records: List[Dict[str, Any]] = Field(default_factory=list)
     export_count: int = 0
     sensitivity_levels_included: List[str] = Field(default_factory=list)
+
+
+class MemoryReport(MCPResultBase):
+    period_days: int = 30
+    new_memories_by_category: Dict[str, int] = Field(default_factory=dict)
+    updated_count: int = 0
+    stale_count: int = 0
+    explicit_count: int = 0
+    top_recalled: List[Dict[str, Any]] = Field(default_factory=list)

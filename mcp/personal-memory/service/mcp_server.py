@@ -43,6 +43,7 @@ from service.memory_ops import (
     delete_memory as delete_memory_row,
     export_memory_records,
     fetch_source_turns,
+    generate_memory_report,
     get_memory_timeline,
     get_stale_for_challenge,
     maintain_memory_store,
@@ -62,6 +63,7 @@ from service.schemas import (
     ItemListResult,
     MaintenanceResult,
     MemoryMutationResult,
+    MemoryReport,
     MemoryWindowField,
     MergeResult,
     RecallResult,
@@ -1293,6 +1295,14 @@ def create_server(
             memory_types=memory_types,
         )
         return ExportResult(**result)
+
+    @server.tool(name="generate_memory_report", structured_output=True)
+    async def generate_memory_report_tool(
+        user_code: Optional[str] = None,
+        period_days: int = 30,
+    ) -> MemoryReport:
+        result = generate_memory_report(user_code=user_code, period_days=period_days)
+        return MemoryReport(**result)
 
     return server
 
