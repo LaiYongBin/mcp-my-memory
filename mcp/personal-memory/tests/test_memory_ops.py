@@ -259,6 +259,20 @@ class MemoryReportTests(unittest.TestCase):
             self.assertIn("stale_count", result)
 
 
+    def test_memory_report_has_sentiment_distribution(self):
+        from unittest.mock import patch, MagicMock
+        from service.memory_ops import generate_memory_report
+
+        with patch("service.memory_ops.get_conn") as mock_conn:
+            mock_cursor = MagicMock()
+            mock_cursor.fetchall.return_value = []
+            mock_cursor.fetchone.return_value = {"count": 0, "cnt": 0}
+            mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+            result = generate_memory_report(user_code="__nonexistent__")
+        self.assertIn("sentiment_distribution", result)
+        self.assertIsInstance(result["sentiment_distribution"], dict)
+
+
 class RevertMemoryToVersionTests(unittest.TestCase):
     def test_revert_memory_to_version_exists(self):
         from service.memory_ops import revert_memory_to_version

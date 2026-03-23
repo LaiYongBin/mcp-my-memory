@@ -335,6 +335,7 @@ class MemoryReport(MCPResultBase):
     stale_count: int = 0
     explicit_count: int = 0
     top_recalled: List[Dict[str, Any]] = Field(default_factory=list)
+    sentiment_distribution: Dict[str, int] = Field(default_factory=dict)
 
 
 class IngestResult(MCPResultBase):

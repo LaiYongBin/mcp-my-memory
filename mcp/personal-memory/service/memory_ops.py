@@ -1491,6 +1491,21 @@ def generate_memory_report(
         )
         top_recalled = [dict(row) for row in cur.fetchall()]
 
+        # sentiment 分布
+        cur.execute(
+            """
+            SELECT COALESCE(sentiment, 'neutral') AS sentiment, count(*) AS cnt
+            FROM memory_record
+            WHERE user_code = %s
+              AND deleted_at IS NULL
+              AND status != 'archived'
+            GROUP BY 1
+            ORDER BY cnt DESC
+            """,
+            (resolved_user,),
+        )
+        sentiment_distribution = {str(row["sentiment"]): int(row["cnt"]) for row in cur.fetchall()}
+
     return {
         "period_days": period_days,
         "new_memories_by_category": new_by_category,
@@ -1498,4 +1513,5 @@ def generate_memory_report(
         "stale_count": stale_count,
         "explicit_count": explicit_count,
         "top_recalled": top_recalled,
+        "sentiment_distribution": sentiment_distribution,
     }
