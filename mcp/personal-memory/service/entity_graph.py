@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import logging
 import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from psycopg.types.json import Json
 
@@ -395,8 +399,22 @@ def rebuild_entity_graph(*, user_code: Optional[str] = None, force: bool = False
                 (resolved_user, subject_keys or [""]),
             )
             conn.commit()
-    for subject_key in subject_keys:
-        refresh_entity_graph_for_subject(user_code=resolved_user, subject_key=subject_key)
+    if subject_keys:
+        max_workers = min(len(subject_keys), 8)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    refresh_entity_graph_for_subject,
+                    user_code=resolved_user,
+                    subject_key=sk,
+                )
+                for sk in subject_keys
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    logger.warning("refresh_entity_graph_for_subject failed: %s", exc)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT count(*) AS count FROM entity_profile WHERE user_code = %s AND status = 'active'",

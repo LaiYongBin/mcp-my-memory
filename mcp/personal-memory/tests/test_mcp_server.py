@@ -1286,5 +1286,15 @@ class ConnectionPoolTests(unittest.TestCase):
                         "service.db 应有模块级 _pool 变量")
 
 
+class RebuildEntityGraphParallelTests(unittest.TestCase):
+    def test_rebuild_uses_thread_pool_for_subjects(self):
+        """rebuild_entity_graph 应使用 ThreadPoolExecutor 并行处理 subject_keys。"""
+        import inspect
+        from service import entity_graph
+        source = inspect.getsource(entity_graph.rebuild_entity_graph)
+        self.assertIn("ThreadPoolExecutor", source,
+                      "rebuild_entity_graph 应使用 ThreadPoolExecutor 并行处理")
+
+
 if __name__ == "__main__":
     unittest.main()
