@@ -993,3 +993,15 @@ class EvidencePromotedStatusTests(unittest.TestCase):
         # 确认 SET 子句包含 status = 'promoted'
         self.assertIn("status = 'promoted'", source,
                       "mark_evidence_promoted 的 UPDATE SQL 应包含 status = 'promoted'")
+
+
+class MemoryTimelineRecursiveCTETests(unittest.TestCase):
+    def test_get_memory_timeline_uses_recursive_cte(self):
+        """get_memory_timeline 应使用递归 CTE，不应在 Python 循环中逐条 SELECT。"""
+        import inspect
+        from service.memory_ops import get_memory_timeline
+        source = inspect.getsource(get_memory_timeline)
+        self.assertIn("WITH RECURSIVE", source,
+                      "get_memory_timeline 应使用 WITH RECURSIVE CTE 遍历 supersedes 链")
+        self.assertNotIn("_fetch_where_supersedes_id", source,
+                         "get_memory_timeline 不应再调用 _fetch_where_supersedes_id 循环遍历")

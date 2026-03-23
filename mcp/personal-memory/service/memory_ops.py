@@ -1246,77 +1246,104 @@ def get_memory_timeline(
     attribute_key: Optional[str] = None,
     limit: int = 20,
 ) -> List[Dict[str, Any]]:
+    """返回记忆的版本时间线（supersedes 链）。使用递归 CTE，单次查询。"""
     resolved_user = _resolve_user(user_code)
-    visited_ids: set = set()
-    result = []
+    if not memory_id and not subject_key:
+        return []
 
-    # 1. 确定起点
-    if memory_id:
-        start = get_memory(memory_id, resolved_user)
-    elif subject_key and attribute_key:
+    # 找起始记忆
+    start = get_memory(memory_id, resolved_user) if memory_id else None
+    if memory_id and not start:
+        return []
+
+    # 若仅通过 subject_key/attribute_key 查找，取最新的一条作为起点
+    if not start and subject_key:
         with get_conn() as conn, conn.cursor() as cur:
+            conditions = ["user_code = %s", "subject_key = %s", "deleted_at IS NULL"]
+            params: List[Any] = [resolved_user, subject_key]
+            if attribute_key:
+                conditions.append("attribute_key = %s")
+                params.append(attribute_key)
             cur.execute(
-                """
-                SELECT id FROM memory_record
-                WHERE user_code = %s AND subject_key = %s AND attribute_key = %s
-                  AND deleted_at IS NULL
-                ORDER BY updated_at DESC LIMIT 1
-                """,
-                (resolved_user, subject_key, attribute_key),
+                f"SELECT {MEMORY_SELECT_COLUMNS} FROM memory_record "
+                f"WHERE {' AND '.join(conditions)} ORDER BY updated_at DESC LIMIT 1",
+                params,
             )
             row = cur.fetchone()
-        start = get_memory(int(row["id"]), resolved_user) if row else None
-    else:
-        return []
+            if not row:
+                return []
+            start = apply_memory_governance(dict(row))
 
-    if not start:
-        return []
+    # 递归 CTE：向旧追溯 supersedes_id 链，向新追溯被谁 supersede
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            WITH RECURSIVE timeline AS (
+                -- 起点
+                SELECT id, supersedes_id, 0 AS depth, 'start' AS direction
+                FROM memory_record
+                WHERE id = %s AND user_code = %s AND deleted_at IS NULL
 
-    # 提前将 start["id"] 加入 visited_ids，防止向新遍历时循环回 start
-    visited_ids.add(start["id"])
+                UNION ALL
 
-    # 2. 向新：反向查找谁 supersedes 了 start
-    current = start
-    newer_chain = []
-    while True:
-        newer = _fetch_where_supersedes_id(resolved_user, current["id"])
-        if not newer or newer["id"] in visited_ids:
-            break
-        visited_ids.add(newer["id"])
-        newer_chain.append(newer)
-        current = newer
+                -- 向旧：沿 supersedes_id 向前追溯
+                SELECT m.id, m.supersedes_id, t.depth + 1, 'older'
+                FROM memory_record m
+                JOIN timeline t ON m.id = t.supersedes_id
+                WHERE t.direction IN ('start', 'older')
+                  AND t.depth < %s
+                  AND m.user_code = %s
+                  AND m.deleted_at IS NULL
 
-    # newer_chain 最后一条是最新版
-    for row in newer_chain:
-        is_latest = (row is newer_chain[-1])
+                UNION ALL
+
+                -- 向新：找谁的 supersedes_id 指向当前节点
+                SELECT m.id, m.supersedes_id, t.depth + 1, 'newer'
+                FROM memory_record m
+                JOIN timeline t ON m.supersedes_id = t.id
+                WHERE t.direction IN ('start', 'newer')
+                  AND t.depth < %s
+                  AND m.user_code = %s
+                  AND m.deleted_at IS NULL
+            )
+            SELECT DISTINCT m.*, tl.direction, tl.depth
+            FROM timeline tl
+            JOIN memory_record m ON m.id = tl.id
+            WHERE m.user_code = %s AND m.deleted_at IS NULL
+            ORDER BY tl.depth ASC
+            LIMIT %s
+            """,
+            (
+                int(start["id"]), resolved_user,
+                limit, resolved_user,
+                limit, resolved_user,
+                resolved_user,
+                limit,
+            ),
+        )
+        rows = cur.fetchall()
+
+    result = []
+    seen_ids = set()
+    for row in rows:
+        row_dict = dict(row)
+        row_id = row_dict.get("id")
+        if row_id in seen_ids:
+            continue
+        seen_ids.add(row_id)
+        direction = row_dict.pop("direction", "start")
+        row_dict.pop("depth", None)
+        position = "current" if row_id == start["id"] else (
+            "superseded" if direction in ("older", "start") else "current"
+        )
         result.append({
-            **row,
-            "timeline_position": "current" if is_latest else "superseded",
-            "changed_at": row["updated_at"],
+            **apply_memory_governance(row_dict),
+            "timeline_position": position,
+            "changed_at": row_dict.get("updated_at"),
         })
 
-    # 3. 起点本身
-    start_position = "superseded" if newer_chain else "current"
-    result.append({**start, "timeline_position": start_position, "changed_at": start["updated_at"]})
-
-    # 4. 向旧：沿 supersedes_id 链追溯
-    row = start
-    while row.get("supersedes_id") and len(result) < limit:
-        if row["supersedes_id"] in visited_ids:
-            break
-        older = _fetch_by_id(resolved_user, int(row["supersedes_id"]))
-        if not older:
-            break
-        visited_ids.add(older["id"])
-        result.append({**older, "timeline_position": "superseded", "changed_at": older["updated_at"]})
-        row = older
-
-    # 5. 冲突链（仅追加 start 的直接冲突）
-    if start.get("conflict_with_id") and start["conflict_with_id"] not in visited_ids:
-        conflict = _fetch_by_id(resolved_user, int(start["conflict_with_id"]))
-        if conflict and len(result) < limit:
-            result.append({**conflict, "timeline_position": "conflicted", "changed_at": conflict["updated_at"]})
-
+    # 按时间倒序：最新版本在前
+    result.sort(key=lambda x: str(x.get("changed_at") or ""), reverse=True)
     return result[:limit]
 
 
