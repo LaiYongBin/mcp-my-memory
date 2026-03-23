@@ -376,6 +376,7 @@ def _build_memory_payload_from_analysis(item: Dict[str, Any], user_code: str) ->
         "attribute_key": item.get("attribute"),
         "value_text": value,
         "conflict_scope": item.get("conflict_scope"),
+        "sentiment": str(item.get("sentiment") or "neutral"),
     }
 
 

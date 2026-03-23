@@ -310,6 +310,7 @@ def search_memories(
     updated_after: Optional[str] = None,
     updated_before: Optional[str] = None,
     valid_at: Optional[str] = None,
+    sentiment: Optional[str] = None,
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
     resolved_user = _resolve_user(user_code)
@@ -372,6 +373,9 @@ def search_memories(
         conditions.append("(valid_from IS NULL OR valid_from <= %s)")
         conditions.append("(valid_to IS NULL OR valid_to >= %s)")
         where_params.extend([valid_at, valid_at])
+    if sentiment:
+        conditions.append("sentiment = %s")
+        where_params.append(sentiment)
 
     rank_sql = "0::float AS rank_score"
     if query.strip():
@@ -608,6 +612,7 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
         "disclosure_policy": governed_payload["disclosure_policy"],
         "lifecycle_state": governed_payload["lifecycle_state"],
         "stability_score": governed_payload["stability_score"],
+        "sentiment": payload.get("sentiment", "neutral"),
     }
     with get_conn() as conn, conn.cursor() as cur:
         if payload.get("id"):
@@ -637,6 +642,7 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
                     disclosure_policy = %(disclosure_policy)s,
                     lifecycle_state = %(lifecycle_state)s,
                     stability_score = %(stability_score)s,
+                    sentiment = %(sentiment)s,
                     updated_at = now()
                 WHERE id = %(id)s AND user_code = %(user_code)s AND deleted_at IS NULL
                 RETURNING id
@@ -651,13 +657,13 @@ def upsert_memory(payload: Dict[str, Any]) -> Dict[str, Any]:
                     source_type, source_ref, confidence, importance, status,
                     is_explicit, valid_from, valid_to,
                     subject_key, related_subject_key, attribute_key, value_text, conflict_scope,
-                    sensitivity_level, disclosure_policy, lifecycle_state, stability_score
+                    sensitivity_level, disclosure_policy, lifecycle_state, stability_score, sentiment
                 ) VALUES (
                     %(user_code)s, %(memory_type)s, %(category)s, %(title)s, %(content)s, %(summary)s, %(tags)s,
                     %(source_type)s, %(source_ref)s, %(confidence)s, %(importance)s, %(status)s,
                     %(is_explicit)s, %(valid_from)s, %(valid_to)s,
                     %(subject_key)s, %(related_subject_key)s, %(attribute_key)s, %(value_text)s, %(conflict_scope)s,
-                    %(sensitivity_level)s, %(disclosure_policy)s, %(lifecycle_state)s, %(stability_score)s
+                    %(sensitivity_level)s, %(disclosure_policy)s, %(lifecycle_state)s, %(stability_score)s, %(sentiment)s
                 )
                 RETURNING id
                 """,

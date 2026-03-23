@@ -150,6 +150,7 @@ def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[
             "conflict_scope": "subject.attribute if applicable, else null",
             "conflict_mode": "coexist | replace | review | merge",
             "tags": ["optional", "tags"],
+            "sentiment": "neutral",
         }
     ]
     return (
@@ -159,8 +160,8 @@ def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[
         "1. 只提取值得保存的记忆点。\n"
         "2. 每个记忆点必须槽位化，至少包含 subject/attribute/value。attribute 要优先使用稳定的通用槽位名，不要每轮发明新槽位。\n"
         "3. 优先使用这些通用槽位：favorite_drink、favorite_food、personality_trait、possible_role、domain_interest、current_focus、current_goal、collaboration_rule、life_status、relationship_fact。\n"
-        "4. 如果一句话明确描述双实体关系，例如“我的朋友小王在 memory mcp 项目里负责后端”，必须保留主实体为 subject，并把另一个实体填到 related_subject。只有明确存在两个实体时才填写 related_subject。\n"
-        "5. 双实体关系里，attribute 优先使用 relationship_fact，value 只保留关系本身，例如“负责后端”或“参与项目”。\n"
+        "4. 如果一句话明确描述双实体关系，例如\"我的朋友小王在 memory mcp 项目里负责后端\"，必须保留主实体为 subject，并把另一个实体填到 related_subject。只有明确存在两个实体时才填写 related_subject。\n"
+        "5. 双实体关系里，attribute 优先使用 relationship_fact，value 只保留关系本身，例如\"负责后端\"或\"参与项目\"。\n"
         "6. 如果和旧记忆是同一槽位但值互斥，优先用 conflict_mode=replace 或 review。\n"
         "7. 如果只是新的不同槽位，例如 favorite_drink 和 favorite_food，必须 coexist，不要误判冲突。\n"
         "8. 对职业、年龄、性别、人格等推断要谨慎；没有足够证据时用 observed 或 inferred，不要冒充 explicit。\n"
@@ -170,7 +171,8 @@ def _analysis_prompt(user_text: str, assistant_text: str, recent_memories: List[
         "12. value 要尽量规范化、短语化，去掉时间词，方便跨轮累积。\n"
         "13. 对偏好、性格、关系这类信息，是否长期化应由语义判断决定，不要依赖固定句式。\n"
         "14. 如果用户只是弱表达、一次性表达、临时情绪，优先降低 confidence 或改成 ignore/working_memory。\n"
-        "15. 输出必须是 JSON 数组，不要任何额外说明。\n\n"
+        "15. 输出必须是 JSON 数组，不要任何额外说明。\n"
+        "16. 每个记忆点还需包含 sentiment 字段，值为 neutral/positive/negative/mixed 之一，表示该记忆对用户的情感倾向。\n\n"
         f"当前用户输入:\n{user_text}\n\n"
         f"当前助手回复:\n{assistant_text}\n\n"
         f"最近已有记忆:\n{json.dumps(recent_memories, ensure_ascii=False, default=str)}\n\n"
@@ -251,6 +253,7 @@ def build_analysis_item(
     conflict_scope: Optional[str] = None,
     conflict_mode: str = CONFLICT_COEXIST,
     tags: Optional[List[str]] = None,
+    sentiment: str = "neutral",   # 新增可选参数
 ) -> Dict[str, Any]:
     return {
         "category": category,
@@ -267,6 +270,7 @@ def build_analysis_item(
         "conflict_scope": conflict_scope,
         "conflict_mode": conflict_mode,
         "tags": tags or [],
+        "sentiment": sentiment,
     }
 
 
@@ -456,6 +460,9 @@ def _normalize_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     conflict_scope = item.get("conflict_scope")
     if not conflict_scope and attribute:
         conflict_scope = f"{subject}.{attribute}"
+    _VALID_SENTIMENTS = frozenset({"neutral", "positive", "negative", "mixed"})
+    sentiment_raw = str(item.get("sentiment") or "neutral").strip().lower()
+    sentiment_value = sentiment_raw if sentiment_raw in _VALID_SENTIMENTS else "neutral"
     return build_analysis_item(
         category=str(item.get("category") or "generic_memory").strip() or "generic_memory",
         subject=subject,
@@ -471,6 +478,7 @@ def _normalize_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         conflict_scope=str(conflict_scope) if conflict_scope else None,
         conflict_mode=str(item.get("conflict_mode") or CONFLICT_COEXIST),
         tags=list(item.get("tags") or []),
+        sentiment=sentiment_value,
     )
 
 
@@ -548,16 +556,16 @@ def save_analysis_results(
                 INSERT INTO memory_inference (
                     user_code, session_key, source_event_id, category, subject, related_subject, attribute, value, claim,
                     rationale, evidence_type, time_scope, action, confidence, conflict_scope,
-                    conflict_mode, sensitivity_level, disclosure_policy, status, tags
+                    conflict_mode, sensitivity_level, disclosure_policy, status, tags, sentiment
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s
                 )
                 RETURNING id, user_code, session_key, source_event_id, category, subject, related_subject, attribute,
                           value, claim, rationale, evidence_type, time_scope, action, confidence,
                           conflict_scope, conflict_mode, sensitivity_level, disclosure_policy,
-                          status, tags, created_at, updated_at
+                          status, tags, sentiment, created_at, updated_at
                 """,
                 (
                     user_code,
@@ -580,6 +588,7 @@ def save_analysis_results(
                     governance["disclosure_policy"],
                     STATUS_ACTIVE,
                     Json(item.get("tags") or []),
+                    item.get("sentiment", "neutral"),
                 ),
             )
             row = cur.fetchone()

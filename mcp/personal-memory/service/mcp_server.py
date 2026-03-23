@@ -762,6 +762,18 @@ def _build_recall_result(
         safe_hooks=safe_hooks,
         internal_only_hooks=internal_only_hooks,
     )
+    # E4: 计算 dominant_sentiment
+    sentiments = [m.get("sentiment", "neutral") for m in memory_groups["direct"]]
+    if sentiments:
+        from collections import Counter
+        dominant_sentiment = Counter(sentiments).most_common(1)[0][0]
+    else:
+        dominant_sentiment = "neutral"
+    tone_hint = {
+        "positive": "match_positive",
+        "negative": "acknowledge_negative",
+    }.get(dominant_sentiment, "neutral")
+    response_plan.tone_hint = tone_hint
     return RecallResult(
         query_text=query_text,
         memories=visible_memories,
@@ -793,6 +805,7 @@ def _build_recall_result(
         disclosure_warnings=disclosure_warnings,
         cited_sources=cited_sources,
         recommended_response_plan=response_plan,
+        dominant_sentiment=dominant_sentiment,
     )
 
 
@@ -860,6 +873,7 @@ def create_server(
         updated_after: Optional[str] = None,
         updated_before: Optional[str] = None,
         valid_at: Optional[str] = None,
+        sentiment: Optional[str] = None,
         limit: int = 10,
     ) -> ItemListResult:
         items = search_memories(
@@ -876,6 +890,7 @@ def create_server(
             updated_after=updated_after,
             updated_before=updated_before,
             valid_at=valid_at,
+            sentiment=sentiment,
             limit=limit,
         )
         return ItemListResult(items=items, count=len(items))

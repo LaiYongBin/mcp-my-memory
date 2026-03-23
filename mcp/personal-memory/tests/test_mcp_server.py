@@ -1118,5 +1118,64 @@ class RecallWeightConfigTests(unittest.TestCase):
             importlib.reload(service.constants)
 
 
+class SentimentFilterTests(unittest.TestCase):
+    def test_normalize_item_handles_invalid_sentiment(self) -> None:
+        """无效 sentiment 值应降级为 'neutral'。"""
+        from service.analyzer import _normalize_item
+        item = {
+            "category": "preference",
+            "subject": "user",
+            "attribute": "favorite_drink",
+            "value": "黑咖啡",
+            "claim": "我喜欢黑咖啡",
+            "rationale": "test",
+            "evidence_type": "explicit",
+            "time_scope": "long_term",
+            "action": "long_term",
+            "confidence": 0.8,
+            "sentiment": "invalid_value",
+        }
+        result = _normalize_item(item)
+        self.assertIsNotNone(result)
+        self.assertEqual("neutral", result.get("sentiment"))
+
+    def test_normalize_item_accepts_valid_sentiment(self) -> None:
+        from service.analyzer import _normalize_item
+        item = {
+            "category": "preference",
+            "subject": "user",
+            "attribute": "favorite_drink",
+            "value": "黑咖啡",
+            "claim": "我喜欢黑咖啡",
+            "rationale": "test",
+            "evidence_type": "explicit",
+            "time_scope": "long_term",
+            "action": "long_term",
+            "confidence": 0.8,
+            "sentiment": "positive",
+        }
+        result = _normalize_item(item)
+        self.assertIsNotNone(result)
+        self.assertEqual("positive", result.get("sentiment"))
+
+    def test_normalize_item_defaults_sentiment_to_neutral(self) -> None:
+        from service.analyzer import _normalize_item
+        item = {
+            "category": "preference",
+            "subject": "user",
+            "attribute": "favorite_drink",
+            "value": "黑咖啡",
+            "claim": "我喜欢黑咖啡",
+            "rationale": "test",
+            "evidence_type": "explicit",
+            "time_scope": "long_term",
+            "action": "long_term",
+            "confidence": 0.8,
+        }
+        result = _normalize_item(item)
+        self.assertIsNotNone(result)
+        self.assertEqual("neutral", result.get("sentiment"))
+
+
 if __name__ == "__main__":
     unittest.main()

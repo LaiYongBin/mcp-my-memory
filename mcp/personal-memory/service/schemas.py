@@ -258,6 +258,7 @@ class RecommendedResponsePlan(BaseModel):
         default_factory=list,
         description="回答后可轻量延展的话题",
     )
+    tone_hint: str = "neutral"
 
 
 class InternalStrategy(BaseModel):
@@ -318,6 +319,7 @@ class RecallResult(MCPResultBase):
     recommended_response_plan: RecommendedResponsePlan = Field(
         default_factory=RecommendedResponsePlan
     )
+    dominant_sentiment: str = "neutral"
 
 
 class ExportResult(MCPResultBase):
