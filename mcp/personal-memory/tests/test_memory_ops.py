@@ -1062,3 +1062,33 @@ class ImportanceDecayTests(unittest.TestCase):
         governed = apply_memory_governance(item)
         self.assertEqual(7, governed["importance"],
                          "稳定偏好记忆的 importance 不应被修改")
+
+
+class SpacedRepetitionTests(unittest.TestCase):
+    def test_sm2_interval_increases_with_recall_count(self):
+        """SM-2 间隔应随 recall_count 递增。"""
+        from service.memory_ops import _sm2_interval_days
+        self.assertEqual(1, _sm2_interval_days(0))
+        self.assertEqual(1, _sm2_interval_days(1))
+        self.assertEqual(3, _sm2_interval_days(2))
+        self.assertEqual(7, _sm2_interval_days(3))
+        self.assertEqual(14, _sm2_interval_days(4))
+        self.assertGreaterEqual(_sm2_interval_days(5), 30)
+
+    def test_submit_challenge_confirmed_sets_next_review_at(self):
+        """confirmed=True 时 submit_challenge_answer 应设置 next_review_at。"""
+        import inspect
+        from service import memory_ops
+        source = inspect.getsource(memory_ops.submit_challenge_answer)
+        self.assertIn("next_review_at", source,
+                      "submit_challenge_answer 应尝试更新 next_review_at")
+        self.assertIn("_sm2_interval_days", source,
+                      "submit_challenge_answer 应使用 _sm2_interval_days 计算间隔")
+
+    def test_submit_challenge_denied_resets_recall_count(self):
+        """confirmed=False 时应重置 recall_count 以触发更频繁的复习。"""
+        import inspect
+        from service import memory_ops
+        source = inspect.getsource(memory_ops.submit_challenge_answer)
+        self.assertIn("recall_count = 0", source,
+                      "denied challenge 应重置 recall_count")

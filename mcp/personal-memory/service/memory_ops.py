@@ -1423,6 +1423,12 @@ def get_stale_for_challenge(
     return rows
 
 
+def _sm2_interval_days(recall_count: int) -> int:
+    """SM-2 简化版间隔计算：基于已累计召回次数返回下次复习间隔（天）。"""
+    intervals = {0: 1, 1: 1, 2: 3, 3: 7, 4: 14}
+    return intervals.get(recall_count, 30)
+
+
 def submit_challenge_answer(
     *,
     memory_id: int,
@@ -1437,23 +1443,57 @@ def submit_challenge_answer(
         return {"error": "memory not found"}
     with get_conn() as conn, conn.cursor() as cur:
         if confirmed:
-            cur.execute(
-                """UPDATE memory_record
-                   SET lifecycle_state = 'active',
-                       last_recalled_at = now(),
-                       value_text = COALESCE(%s, value_text),
-                       content = CASE WHEN %s IS NOT NULL
-                                 THEN content || E'\n[验证更新] ' || %s
-                                 ELSE content END,
-                       updated_at = now()
-                   WHERE id = %s AND user_code = %s""",
-                (answer, answer, answer, memory_id, resolved_user),
-            )
+            current_recall_count = int(memory.get("recall_count") or 0)
+            interval_days = _sm2_interval_days(current_recall_count)
+            try:
+                cur.execute(
+                    """UPDATE memory_record
+                       SET lifecycle_state = 'active',
+                           last_recalled_at = now(),
+                           value_text = COALESCE(%s, value_text),
+                           content = CASE WHEN %s IS NOT NULL
+                                     THEN content || E'\n[验证更新] ' || %s
+                                     ELSE content END,
+                           next_review_at = now() + (%s || ' days')::interval,
+                           updated_at = now()
+                       WHERE id = %s AND user_code = %s""",
+                    (answer, answer, answer, str(interval_days), memory_id, resolved_user),
+                )
+            except Exception:
+                # next_review_at 列不存在时降级
+                cur.execute(
+                    """UPDATE memory_record
+                       SET lifecycle_state = 'active',
+                           last_recalled_at = now(),
+                           value_text = COALESCE(%s, value_text),
+                           content = CASE WHEN %s IS NOT NULL
+                                     THEN content || E'\n[验证更新] ' || %s
+                                     ELSE content END,
+                           updated_at = now()
+                       WHERE id = %s AND user_code = %s""",
+                    (answer, answer, answer, memory_id, resolved_user),
+                )
         else:
-            cur.execute(
-                "UPDATE memory_record SET status = 'archived', updated_at = now() WHERE id = %s AND user_code = %s",
-                (memory_id, resolved_user),
-            )
+            # 否认：归档，重置 recall_count = 0
+            try:
+                cur.execute(
+                    """UPDATE memory_record
+                       SET status = 'archived',
+                           recall_count = 0,
+                           next_review_at = now() + interval '1 day',
+                           updated_at = now()
+                       WHERE id = %s AND user_code = %s""",
+                    (memory_id, resolved_user),
+                )
+            except Exception:
+                cur.execute(
+                    """UPDATE memory_record
+                       SET status = 'archived',
+                           recall_count = 0,
+                           updated_at = now()
+                       WHERE id = %s AND user_code = %s""",
+                    (memory_id, resolved_user),
+                )
         conn.commit()
     return get_memory(memory_id, resolved_user) or {}
 
