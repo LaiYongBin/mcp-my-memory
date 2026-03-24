@@ -177,10 +177,12 @@ source .env.memory
 ```bash
 cd mcp/personal-memory
 python3.11 -m venv .venv
-. .venv/bin/activate
+. .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python3 scripts/bootstrap.py
 ```
+
+> **Windows 注意**：`requirements.txt` 使用 `psycopg[binary]`，已内置 libpq，无需额外安装 PostgreSQL 客户端。若遇到 DLL 被安全软件拦截，将 `.venv\Lib\site-packages\psycopg` 目录加入杀软白名单即可。
 
 `bootstrap.py` 支持附加参数：
 
