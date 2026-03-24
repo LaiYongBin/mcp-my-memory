@@ -148,6 +148,7 @@ def _update_existing_evidence(*, evidence_id: int, item: Dict[str, Any], delta: 
                 EVIDENCE_OBSERVED,
                 EVIDENCE_OBSERVED,
                 EVIDENCE_OBSERVED,
+                str(item.get("evidence_type") or EVIDENCE_OBSERVED),  # ELSE fallback for evidence_type CASE
                 str(item.get("time_scope") or TIME_MID_TERM),
                 TIME_LONG_TERM,
                 TIME_LONG_TERM,

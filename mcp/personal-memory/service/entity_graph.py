@@ -161,7 +161,8 @@ def refresh_entity_graph_for_subject(*, user_code: Optional[str], subject_key: O
             conn.commit()
             return
         if memories:
-            profile = summarize_entities_from_memories(memories, limit=1)[0]
+            _summaries = summarize_entities_from_memories(memories, limit=1)
+            profile = _summaries[0] if _summaries else {}
             latest_memory_id = next((row.get("id") for row in memories if row.get("id") is not None), None)
             display_name = infer_display_name(cleaned_subject, memories)
             memory_count = int(profile.get("memory_count") or len(memories))
@@ -598,6 +599,7 @@ def find_two_hop_connections(
 ) -> List[Dict[str, Any]]:
     if not source_subject_keys:
         return []
+    resolved_user = _resolve_user(user_code)
     # exclude 固定含 "user"（使 != ALL 永不为空）
     exclude = list(set(exclude_subject_keys or []) | {"user"})
     with get_conn() as conn, conn.cursor() as cur:
@@ -608,9 +610,9 @@ def find_two_hop_connections(
             FROM entity_edge
             WHERE source_subject_key = ANY(%s)
               AND target_subject_key != ALL(%s)
-              AND (%s::text IS NULL OR user_code = %s)
+              AND user_code = %s
             """,
-            (source_subject_keys, exclude, user_code, user_code),
+            (source_subject_keys, exclude, resolved_user),
         )
         return [dict(row) for row in cur.fetchall()]
 

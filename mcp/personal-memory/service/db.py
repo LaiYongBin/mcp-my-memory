@@ -1,4 +1,5 @@
 import os
+import threading
 from typing import Dict, Optional, Union
 
 import psycopg
@@ -33,20 +34,23 @@ def _configure_conn(conn: psycopg.Connection) -> None:
 
 
 _pool: Optional[ConnectionPool] = None
+_pool_lock = threading.Lock()
 
 
 def _get_pool() -> ConnectionPool:
     global _pool
     if _pool is None:
-        _pool = ConnectionPool(
-            conninfo=_make_conninfo(),
-            min_size=2,
-            max_size=20,
-            configure=_configure_conn,
-            kwargs={"row_factory": dict_row},
-            open=False,  # 延迟打开，避免 import 时建立连接
-        )
-        _pool.open()
+        with _pool_lock:
+            if _pool is None:
+                _pool = ConnectionPool(
+                    conninfo=_make_conninfo(),
+                    min_size=2,
+                    max_size=20,
+                    configure=_configure_conn,
+                    kwargs={"row_factory": dict_row},
+                    open=False,  # 延迟打开，避免 import 时建立连接
+                )
+                _pool.open()
     return _pool
 
 

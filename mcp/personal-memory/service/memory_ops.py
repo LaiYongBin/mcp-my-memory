@@ -1445,6 +1445,7 @@ def submit_challenge_answer(
         if confirmed:
             current_recall_count = int(memory.get("recall_count") or 0)
             interval_days = _sm2_interval_days(current_recall_count)
+            cur.execute("SAVEPOINT sp_challenge")
             try:
                 cur.execute(
                     """UPDATE memory_record
@@ -1459,8 +1460,10 @@ def submit_challenge_answer(
                        WHERE id = %s AND user_code = %s""",
                     (answer, answer, answer, str(interval_days), memory_id, resolved_user),
                 )
+                cur.execute("RELEASE SAVEPOINT sp_challenge")
             except Exception:
-                # next_review_at 列不存在时降级
+                # next_review_at 列不存在时降级（先回滚到保存点，再执行兼容语句）
+                cur.execute("ROLLBACK TO SAVEPOINT sp_challenge")
                 cur.execute(
                     """UPDATE memory_record
                        SET lifecycle_state = 'active',
@@ -1475,6 +1478,7 @@ def submit_challenge_answer(
                 )
         else:
             # 否认：归档，重置 recall_count = 0
+            cur.execute("SAVEPOINT sp_challenge")
             try:
                 cur.execute(
                     """UPDATE memory_record
@@ -1485,7 +1489,9 @@ def submit_challenge_answer(
                        WHERE id = %s AND user_code = %s""",
                     (memory_id, resolved_user),
                 )
+                cur.execute("RELEASE SAVEPOINT sp_challenge")
             except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_challenge")
                 cur.execute(
                     """UPDATE memory_record
                        SET status = 'archived',

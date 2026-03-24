@@ -878,6 +878,7 @@ def _execute_capture_turn(
         session_key=session_key,
         source_ref=source_ref,
         consolidate=consolidate,
+        topic_hint=topic_hint,
     )
     if sync_context:
         def _on_sync_done(fut: concurrent.futures.Future) -> None:
@@ -1602,7 +1603,7 @@ def create_server(
         )
         if "error" in result:
             raise ValueError(result["error"])
-        return MemoryMutationResult(**result)
+        return MemoryMutationResult(memory=result)
 
     @server.tool(name="revert_memory_to_version", structured_output=True)
     def revert_memory_to_version_tool(
@@ -1617,7 +1618,7 @@ def create_server(
         )
         if "error" in result:
             raise ValueError(result["error"])
-        return MemoryMutationResult(**result)
+        return MemoryMutationResult(memory=result)
 
     return server
 

@@ -211,10 +211,10 @@ def refresh_memories_batch(
                 )
                 cur.execute(
                     """
-                    INSERT INTO memory_vector_chunk (memory_id, user_code, chunk_index, chunk_text, embedding)
-                    VALUES (%s, %s, 0, %s, %s)
+                    INSERT INTO memory_vector_chunk (memory_id, user_code, chunk_index, chunk_text, embedding_text_hash, embedding)
+                    VALUES (%s, %s, 0, %s, md5(%s), %s)
                     """,
-                    (memory_id, user_code, chunk_text, vector),
+                    (memory_id, user_code, chunk_text, chunk_text, vector),
                 )
                 conn.commit()
                 success += 1

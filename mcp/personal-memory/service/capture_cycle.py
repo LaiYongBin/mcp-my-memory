@@ -192,6 +192,8 @@ def upsert_working_memory(
             )
         row = cur.fetchone()
         conn.commit()
+        if row is None:
+            raise RuntimeError("upsert_working_memory returned no row")
         return dict(row)
 
 
